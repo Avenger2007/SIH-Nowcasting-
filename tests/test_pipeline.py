@@ -1,302 +1,617 @@
 """
 tests/test_pipeline.py
-Pytest tests for the Thunderstorm Nowcasting pipeline.
+Tests for the nowcasting pipeline.
+
+These are regression tests as much as unit tests: several of them exist
+specifically to make the bugs listed in ISSUES.json impossible to reintroduce
+without a red build. Each such test names the bug it guards.
+
+Network-dependent tests are marked ``live`` and skipped by default:
+
+    pytest                    # offline tests only
+    pytest -m live            # include live-network tests
+    pytest -m "not live"      # explicit offline run
 """
 
-import os
-import sys
-import tempfile
-import shutil
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
-import cv2
 import pytest
 
-# Add project root to path so utils can be imported
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, PROJECT_ROOT)
+import config
+from utils import calibration, consistency, features as feat, metrics, optical_flow
+from utils.datasources import lightning as lightning_src
+from utils.datasources import mosdac, radar
+from utils.datasources.base import SourceResult, SourceStatus
+from utils.predictor import (
+    FeatureContract,
+    FeatureContractError,
+    ThunderstormPredictor,
+    generate_demo_training_data,
+)
 
-from utils.satellite import generate_sample_satellite_images
-from utils.optical_flow import compute_optical_flow, extract_flow_features
-from utils.features import build_feature_vector
-from utils.predictor import ThunderstormPredictor, generate_synthetic_training_data
-from utils.llm_alert import generate_template_alert
 
-
-# ---------------------------------------------------------------------------
+# ==========================================================================
 # Fixtures
-# ---------------------------------------------------------------------------
+# ==========================================================================
 
-@pytest.fixture
-def sample_images(tmp_path):
-    """Generate a small set of sample satellite images for testing."""
-    images, timestamps = generate_sample_satellite_images(
-        output_dir=str(tmp_path / "sample_images"), count=4
-    )
-    return images, timestamps
+@pytest.fixture(scope="module")
+def frame_sequence():
+    """A deterministic synthetic IR sequence in Kelvin."""
+    frames, timestamps = mosdac.simulate_convective_sequence(count=6, seed=7)
+    return frames, timestamps
 
 
-@pytest.fixture
-def grayscale_pair():
-    """Create two simple grayscale images for optical flow testing."""
-    np.random.seed(0)
-    img1 = np.random.randint(100, 200, (64, 64), dtype=np.uint8)
-    # Shift img1 slightly to create img2 (simulate cloud motion)
-    img2 = np.roll(img1, 2, axis=1)
-    img2 = np.roll(img2, 1, axis=0)
-    return img1, img2
-
-
-@pytest.fixture
+@pytest.fixture(scope="module")
 def trained_predictor():
-    """Train a small model for prediction tests."""
-    X, y = generate_synthetic_training_data(n_samples=200, n_features=48)
     predictor = ThunderstormPredictor()
-    predictor.train(X, y, n_estimators=20, max_depth=3)
+    X, y, timestamps = generate_demo_training_data(
+        feat.FEATURE_NAMES, n_samples=800, random_state=3
+    )
+    predictor.train(
+        X, y, feature_names=feat.FEATURE_NAMES,
+        timestamps=timestamps, n_estimators=40,
+    )
     return predictor
 
 
-# ---------------------------------------------------------------------------
-# 1. Satellite image generation
-# ---------------------------------------------------------------------------
+# ==========================================================================
+# Calibration
+# ==========================================================================
 
-def test_satellite_generation(tmp_path):
-    """Test that sample satellite images are generated correctly."""
-    output_dir = str(tmp_path / "test_satellite")
-    images, timestamps = generate_sample_satellite_images(
-        output_dir=output_dir, count=4
-    )
-
-    # Correct number of images and timestamps
-    assert len(images) == 4
-    assert len(timestamps) == 4
-
-    # Files exist on disk
-    for path in images:
-        assert os.path.isfile(path), f"Image file not found: {path}"
-
-    # Images are valid and loadable
-    for path in images:
-        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-        assert img is not None, f"Could not load image: {path}"
-        assert img.shape == (256, 256), f"Unexpected shape: {img.shape}"
-        assert img.dtype == np.uint8
+def test_counts_to_kelvin_is_invertible():
+    counts = np.arange(0, 256, dtype=np.uint8)
+    kelvin = calibration.counts_to_kelvin(counts)
+    back = calibration.kelvin_to_counts(kelvin)
+    assert np.abs(back.astype(int) - counts.astype(int)).max() <= 1
 
 
-# ---------------------------------------------------------------------------
-# 2. Optical flow
-# ---------------------------------------------------------------------------
-
-def test_optical_flow(grayscale_pair):
-    """Test optical flow computation and feature extraction."""
-    img1, img2 = grayscale_pair
-
-    flow = compute_optical_flow(img1, img2)
-
-    # Flow shape: (H, W, 2)
-    assert flow.shape == (64, 64, 2)
-    assert flow.dtype == np.float32
-
-    # Flow should not be all zero (images are different)
-    assert np.any(flow != 0)
-
-    # Extract features
-    features = extract_flow_features(flow, img2)
-    assert isinstance(features, dict)
-    assert "flow_magnitude_mean" in features
-    assert "flow_magnitude_max" in features
-    assert "convergence_mean" in features
-
-    # Magnitude stats should be non-negative
-    assert features["flow_magnitude_mean"] >= 0
-    assert features["flow_magnitude_max"] >= 0
+def test_bright_pixels_are_cold():
+    """IR convention: bright browse pixels are COLD cloud tops."""
+    cold = calibration.counts_to_kelvin(np.array([255], dtype=np.uint8))
+    warm = calibration.counts_to_kelvin(np.array([0], dtype=np.uint8))
+    assert cold[0] < warm[0]
 
 
-# ---------------------------------------------------------------------------
-# 3. Feature engineering
-# ---------------------------------------------------------------------------
-
-def test_feature_engineering(grayscale_pair):
-    """Test that build_feature_vector returns a consistent numeric vector."""
-    img1, img2 = grayscale_pair
-    from datetime import datetime
-    timestamps = [datetime(2026, 7, 15, 14, 30)]
-
-    feature_vector, feature_names = build_feature_vector(
-        img2, img1, timestamps
-    )
-
-    # Vector is 1-D float32
-    assert isinstance(feature_vector, np.ndarray)
-    assert feature_vector.ndim == 1
-    assert feature_vector.dtype == np.float32
-
-    # No NaN or Inf values
-    assert not np.any(np.isnan(feature_vector))
-    assert not np.any(np.isinf(feature_vector))
-
-    # Feature names match vector length
-    assert len(feature_names) == feature_vector.shape[0]
-
-    # Expected number of features (cooling + texture + cloud + temporal + weather + flow)
-    assert len(feature_names) >= 30
+def test_ensure_kelvin_passes_through_physical_values():
+    kelvin = np.full((8, 8), 250.0, dtype=np.float32)
+    assert np.allclose(calibration.ensure_kelvin(kelvin), kelvin)
 
 
-# ---------------------------------------------------------------------------
-# 4. Model training
-# ---------------------------------------------------------------------------
+def test_thresholds_are_in_kelvin_not_counts():
+    """Guards BUG-007: physical thresholds must not be 8-bit values."""
+    assert 180 < config.BT_CONVECTIVE_K < 300
+    assert config.BT_OVERSHOOT_K < config.BT_DEEP_CONVECTIVE_K
+    assert config.BT_DEEP_CONVECTIVE_K < config.BT_CONVECTIVE_K
 
-def test_model_training():
-    """Test that ThunderstormPredictor trains successfully."""
-    X, y = generate_synthetic_training_data(n_samples=200, n_features=48)
 
+# ==========================================================================
+# Feature contract - BUG-002
+# ==========================================================================
+
+def test_contract_aligns_by_name_not_position():
+    """
+    Guards BUG-002. Features supplied in a scrambled order must produce the
+    same vector, because alignment is by name.
+    """
+    contract = FeatureContract(names=["alpha", "beta", "gamma"])
+    forward = contract.align({"alpha": 1.0, "beta": 2.0, "gamma": 3.0})
+    scrambled = contract.align({"gamma": 3.0, "alpha": 1.0, "beta": 2.0})
+    assert np.array_equal(forward, scrambled)
+    assert np.array_equal(forward, np.array([1.0, 2.0, 3.0], dtype=np.float32))
+
+
+def test_contract_rejects_missing_features():
+    contract = FeatureContract(names=["alpha", "beta"])
+    with pytest.raises(FeatureContractError, match="missing"):
+        contract.align({"alpha": 1.0})
+
+
+def test_contract_detects_out_of_distribution_input():
+    """
+    Guards BUG-001. A model trained on N(0,1) fed a pressure of 1013 must
+    flag it rather than silently extrapolating.
+    """
+    X = np.random.default_rng(0).normal(0, 1, (400, 2))
+    contract = FeatureContract.from_matrix(X, ["a", "b"])
+    flagged = contract.out_of_range(np.array([1013.0, 0.1], dtype=np.float32))
+    assert any(item["feature"] == "a" for item in flagged)
+
+
+def test_predictor_refuses_model_without_contract():
+    """Guards BUG-002: a contract-less model must not be usable."""
     predictor = ThunderstormPredictor()
-    metrics = predictor.train(X, y, n_estimators=20, max_depth=3)
-
-    # Model is trained
-    assert predictor.is_trained is True
-
-    # Metrics contain expected keys
-    assert "train_accuracy" in metrics
-    assert "n_samples" in metrics
-    assert "n_features" in metrics
-    assert "feature_importance" in metrics
-
-    # Accuracy is reasonable (above random for 2 classes)
-    assert metrics["train_accuracy"] > 0.5
-    assert metrics["n_samples"] == 200
-    assert metrics["n_features"] == 48
+    predictor.is_trained = True
+    predictor.model = object()
+    with pytest.raises(FeatureContractError):
+        predictor._require_trained()
 
 
-# ---------------------------------------------------------------------------
-# 5. Prediction
-# ---------------------------------------------------------------------------
+# ==========================================================================
+# Model
+# ==========================================================================
 
-def test_prediction(trained_predictor):
-    """Test prediction on a single sample."""
-    X, _ = generate_synthetic_training_data(n_samples=5, n_features=48)
-
-    predictions, probabilities = trained_predictor.predict(X)
-
-    # Shapes
-    assert predictions.shape == (5,)
-    assert probabilities.shape == (5,)
-
-    # Predictions are binary
-    assert set(predictions.tolist()).issubset({0, 1})
-
-    # Probabilities in [0, 100]
-    assert np.all(probabilities >= 0)
-    assert np.all(probabilities <= 100)
-
-    # Single prediction
-    result = trained_predictor.predict_single(X[0])
-    assert "thunderstorm_probability" in result
-    assert "risk_level" in result
-    assert result["risk_level"] in {"HIGH", "MODERATE", "LOW", "MINIMAL"}
+def test_training_produces_verification_metrics(trained_predictor):
+    """Guards BUG-005: a model must ship with held-out metrics."""
+    validation = trained_predictor.card.validation
+    assert "contingency" in validation
+    for key in ("pod", "far", "csi", "hss"):
+        assert key in validation["contingency"]
 
 
-# ---------------------------------------------------------------------------
-# 6. Alert generation
-# ---------------------------------------------------------------------------
-
-def test_alert_generation():
-    """Test template-based alert generation for all risk levels."""
-    for risk_level, expected_keyword in [
-        ("HIGH", "ALERT"),
-        ("MODERATE", "WATCH"),
-        ("LOW", "ADVISORY"),
-        ("MINIMAL", "UPDATE"),
-    ]:
-        prediction = {
-            "thunderstorm_probability": 75.0,
-            "risk_level": risk_level,
-            "risk_color": "red",
-            "prediction": 1,
-        }
-        alert = generate_template_alert(prediction, "Delhi")
-
-        assert isinstance(alert, str)
-        assert len(alert) > 0
-        assert "Delhi" in alert
-        assert expected_keyword in alert
+def test_synthetic_model_is_flagged_as_demonstration(trained_predictor):
+    """Guards BUG-001: synthetic training must be visible to the UI."""
+    assert trained_predictor.card.is_demonstration_only
+    assert "DEMONSTRATION" in trained_predictor.card.banner
 
 
-# ---------------------------------------------------------------------------
-# 7. Model save / load
-# ---------------------------------------------------------------------------
-
-def test_model_save_load(trained_predictor, tmp_path):
-    """Test that a trained model can be saved and reloaded."""
-    model_path = str(tmp_path / "test_model.json")
-
-    # Save
-    trained_predictor.save_model(model_path)
-    assert os.path.isfile(model_path)
-
-    # Load into a new predictor
-    new_predictor = ThunderstormPredictor()
-    new_predictor.load_model(model_path)
-
-    assert new_predictor.is_trained is True
-    assert new_predictor.feature_names == trained_predictor.feature_names
-
-    # Predictions should match
-    X, _ = generate_synthetic_training_data(n_samples=10, n_features=48)
-    pred1, prob1 = trained_predictor.predict(X)
-    pred2, prob2 = new_predictor.predict(X)
-
-    np.testing.assert_array_equal(pred1, pred2)
-    np.testing.assert_allclose(prob1, prob2, atol=1e-5)
+def test_prediction_is_ordering_independent(trained_predictor):
+    features = {name: 1.0 for name in feat.FEATURE_NAMES}
+    reversed_features = dict(reversed(list(features.items())))
+    assert (trained_predictor.predict_proba(features)
+            == trained_predictor.predict_proba(reversed_features))
 
 
-# ---------------------------------------------------------------------------
-# 8. End-to-end pipeline
-# ---------------------------------------------------------------------------
+def test_prediction_responds_to_inputs(trained_predictor):
+    """
+    The original model returned a near-constant probability. Varying the
+    strongest predictors must move the output.
+    """
+    quiet = {name: 0.0 for name in feat.FEATURE_NAMES}
+    quiet.update({"bt_min": 290.0, "cape_j_kg": 50.0,
+                  "cold_cloud_fraction": 0.0, "cooling_rate_max": 0.0})
 
-def test_end_to_end_pipeline(tmp_path):
-    """Run the full pipeline: images → flow → features → predict → alert."""
-    from datetime import datetime
+    stormy = {name: 0.0 for name in feat.FEATURE_NAMES}
+    stormy.update({"bt_min": 200.0, "cape_j_kg": 3000.0,
+                   "cold_cloud_fraction": 0.4, "cooling_rate_max": 0.6})
 
-    # Step 1: Generate satellite images
-    output_dir = str(tmp_path / "e2e_images")
-    image_paths, timestamps = generate_sample_satellite_images(
-        output_dir=output_dir, count=4
+    assert abs(trained_predictor.predict_proba(stormy)
+               - trained_predictor.predict_proba(quiet)) > 1.0
+
+
+def test_model_round_trips_through_disk(trained_predictor, tmp_path):
+    path = tmp_path / "model.json"
+    trained_predictor.save_model(path)
+
+    loaded = ThunderstormPredictor().load_model(path)
+    assert loaded.contract.names == trained_predictor.contract.names
+    assert loaded.card.training_data == trained_predictor.card.training_data
+
+    features = {name: 0.5 for name in feat.FEATURE_NAMES}
+    assert np.isclose(loaded.predict_proba(features),
+                      trained_predictor.predict_proba(features))
+
+
+def test_legacy_metadata_is_refused(tmp_path):
+    """Guards BUG-002: v1 metadata carried no contract and must be rejected."""
+    import json
+
+    model_path = tmp_path / "old.json"
+    model_path.write_text("{}", encoding="utf-8")
+    (tmp_path / "old_meta.json").write_text(
+        json.dumps({"feature_names": ["a"], "is_trained": True}),
+        encoding="utf-8",
     )
-    assert len(image_paths) == 4
+    with pytest.raises(FeatureContractError, match="legacy"):
+        ThunderstormPredictor().load_model(model_path)
 
-    # Step 2: Load images as grayscale
-    images = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in image_paths]
-    assert all(img is not None for img in images)
 
-    # Step 3: Compute optical flow between last two images
-    flow = compute_optical_flow(images[-2], images[-1])
-    assert flow.shape[:2] == images[-1].shape
+# ==========================================================================
+# Verification metrics
+# ==========================================================================
 
-    # Step 4: Extract flow features
-    flow_features = extract_flow_features(flow, images[-1])
-    assert isinstance(flow_features, dict)
+def test_contingency_table_arithmetic():
+    y_true = [1, 1, 1, 0, 0, 0, 0, 0]
+    y_prob = [0.9, 0.8, 0.2, 0.7, 0.1, 0.1, 0.1, 0.1]
+    table = metrics.contingency(y_true, y_prob, threshold=0.5)
 
-    # Step 5: Build feature vector
-    feature_vector, feature_names = build_feature_vector(
-        images[-1], images[-2], timestamps, flow_features=flow_features
+    assert table.hits == 2
+    assert table.misses == 1
+    assert table.false_alarms == 1
+    assert table.correct_negatives == 4
+    assert table.pod == pytest.approx(2 / 3)
+    assert table.far == pytest.approx(1 / 3)   # FA / (hits + FA)
+    assert table.csi == pytest.approx(2 / 4)
+
+
+def test_perfect_forecast_scores_perfectly():
+    y_true = [1, 1, 0, 0]
+    table = metrics.contingency(y_true, [0.99, 0.99, 0.01, 0.01], 0.5)
+    assert table.pod == 1.0
+    assert table.far == 0.0
+    assert table.csi == 1.0
+
+
+def test_accuracy_is_misleading_for_rare_events():
+    """The reason POD/FAR/CSI are reported instead of accuracy."""
+    y_true = [0] * 95 + [1] * 5
+    y_prob = [0.0] * 100                      # always forecast "no storm"
+    table = metrics.contingency(y_true, y_prob, 0.5)
+
+    assert table.accuracy == pytest.approx(0.95)   # looks excellent
+    assert table.pod == 0.0                        # catches nothing
+    assert table.csi == 0.0
+
+
+def test_brier_skill_score_of_climatology_is_zero():
+    y_true = [1, 0, 1, 0, 0, 0, 1, 0]
+    base_rate = float(np.mean(y_true))
+    assert metrics.brier_skill_score(
+        y_true, [base_rate] * len(y_true)) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_auc_of_perfect_separation_is_one():
+    y_true = [0, 0, 0, 1, 1, 1]
+    assert metrics.auc(y_true, [0.1, 0.15, 0.2, 0.8, 0.85, 0.9]) > 0.99
+
+
+# ==========================================================================
+# Optical flow
+# ==========================================================================
+
+def test_flow_detects_known_translation():
+    """A uniformly shifted field must produce flow of the right magnitude."""
+    rng = np.random.default_rng(1)
+    base = rng.normal(260, 12, (128, 128)).astype(np.float32)
+    base[40:70, 40:70] -= 55                       # a cold blob to track
+
+    shifted = np.roll(base, 5, axis=1)
+    flow = optical_flow.compute_optical_flow(base, shifted)
+
+    # Mean x-displacement should be positive and of order the true shift.
+    assert np.mean(flow[..., 0]) > 1.0
+
+
+def test_advection_moves_features_forward():
+    """
+    Guards BUG-014. Advection must move a feature ALONG the flow, not against
+    it. A constant rightward flow must move a blob to the right.
+    """
+    field = np.zeros((64, 64), dtype=np.float32)
+    field[30:34, 10:14] = 100.0
+
+    flow = np.zeros((64, 64, 2), dtype=np.float32)
+    flow[..., 0] = 4.0                              # 4 px per step, rightward
+
+    advected = optical_flow.advect(field, flow, steps=1.0)
+
+    source_x = float(np.argmax(field.sum(axis=0)))
+    result_x = float(np.argmax(advected.sum(axis=0)))
+    assert result_x > source_x
+
+
+def test_circular_mean_handles_wraparound():
+    """
+    Guards BUG-013. The mean of bearings either side of north must be near
+    north, not near south.
+    """
+    flow = np.zeros((32, 32, 2), dtype=np.float32)
+    flow[:16, :, 0] = 0.02      # just east of north
+    flow[:16, :, 1] = -1.0
+    flow[16:, :, 0] = -0.02     # just west of north
+    flow[16:, :, 1] = -1.0
+
+    mean = optical_flow.extract_flow_features(flow)["flow_direction_mean"]
+    assert min(mean, 360 - mean) < 15.0
+
+
+def test_nowcast_lead_time_uses_frame_interval(frame_sequence):
+    """
+    Guards BUG-008. Six hours at a 30-minute cadence is twelve steps, not six,
+    so a +6 h nowcast must differ from a naive six-step advection.
+    """
+    frames, _ = frame_sequence
+    nowcasts, flow = optical_flow.nowcast_sequence(
+        frames, lead_times_hours=[6], interval_minutes=30.0
     )
-    assert feature_vector.ndim == 1
-    assert not np.any(np.isnan(feature_vector))
+    six_steps = optical_flow.advect(frames[-1], flow, steps=6.0)
+    assert not np.allclose(nowcasts[0], six_steps)
 
-    # Step 6: Train a model (small, for speed)
-    X, y = generate_synthetic_training_data(n_samples=200, n_features=len(feature_vector))
-    predictor = ThunderstormPredictor()
-    predictor.train(X, y, n_estimators=20, max_depth=3)
-    assert predictor.is_trained
 
-    # Step 7: Predict
-    result = predictor.predict_single(feature_vector)
-    assert "thunderstorm_probability" in result
-    assert "risk_level" in result
+def test_persistence_baseline_is_unchanged(frame_sequence):
+    frames, _ = frame_sequence
+    baseline = optical_flow.persistence_baseline(frames, [1, 3, 6])
+    assert all(np.array_equal(b, frames[-1]) for b in baseline)
 
-    # Step 8: Generate alert
-    alert = generate_template_alert(result, "Delhi")
-    assert isinstance(alert, str)
-    assert "Delhi" in alert
-    assert len(alert) > 20
+
+# ==========================================================================
+# Features
+# ==========================================================================
+
+def test_feature_names_are_unique():
+    assert len(feat.FEATURE_NAMES) == len(set(feat.FEATURE_NAMES))
+
+
+def test_build_features_returns_full_contract(frame_sequence):
+    frames, timestamps = frame_sequence
+    features = feat.build_features(frames[-1], frames[-2], timestamps)
+    assert set(features) == set(feat.FEATURE_NAMES)
+    assert all(isinstance(v, float) for v in features.values())
+
+
+def test_build_features_is_a_mapping_not_a_tuple(frame_sequence):
+    """Guards BUG-017: the old function's annotation contradicted its return."""
+    frames, timestamps = frame_sequence
+    assert isinstance(
+        feat.build_features(frames[-1], frames[-2], timestamps), dict)
+
+
+def test_cooling_features_detect_growth():
+    """A cooling cloud top must produce a positive cooling rate."""
+    warm = np.full((64, 64), 260.0, dtype=np.float32)
+    cold = warm - 12.0
+    result = feat.extract_cooling_features(cold, warm, minutes=30.0)
+    assert result["cooling_rate_mean"] > 0
+    assert result["bt_min"] < 260.0
+
+
+def test_convective_fractions_respond_to_threshold():
+    field = np.full((64, 64), 300.0, dtype=np.float32)
+    field[:16, :16] = 200.0                        # deep, overshooting
+    result = feat.extract_cooling_features(field, field)
+
+    assert result["cold_cloud_fraction"] == pytest.approx(0.0625)
+    assert result["deep_convective_fraction"] == pytest.approx(0.0625)
+    assert result["overshoot_fraction"] == pytest.approx(0.0625)
+
+
+def test_hour_encoding_is_cyclic():
+    late = feat.extract_temporal_features(
+        [datetime(2026, 6, 1, 23, tzinfo=timezone.utc)])
+    early = feat.extract_temporal_features(
+        [datetime(2026, 6, 1, 0, tzinfo=timezone.utc)])
+    distance = np.hypot(late["hour_sin"] - early["hour_sin"],
+                        late["hour_cos"] - early["hour_cos"])
+    assert distance < 0.6
+
+
+# ==========================================================================
+# Lightning
+# ==========================================================================
+
+def test_lightning_labels_are_forward_looking():
+    """
+    Guards the most damaging possible mistake in a nowcasting dataset: a label
+    window that includes the present leaks the answer into the features.
+    """
+    t0 = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
+    strikes = [
+        {"lat": 28.6, "lon": 77.2, "time": (t0 - timedelta(minutes=30)).isoformat()},
+        {"lat": 28.6, "lon": 77.2, "time": (t0 + timedelta(hours=1)).isoformat()},
+    ]
+    labels = lightning_src.build_labels(
+        strikes, [t0], 28.6, 77.2, radius_km=25, lead_hours=3
+    )
+    assert labels[0] == 1          # the future strike counts
+
+    past_only = lightning_src.build_labels(
+        [strikes[0]], [t0], 28.6, 77.2, radius_km=25, lead_hours=3
+    )
+    assert past_only[0] == 0       # the past strike must NOT count
+
+
+def test_lightning_labels_respect_radius():
+    t0 = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
+    far_strike = [{"lat": 20.0, "lon": 77.2,
+                   "time": (t0 + timedelta(hours=1)).isoformat()}]
+    labels = lightning_src.build_labels(
+        far_strike, [t0], 28.6, 77.2, radius_km=25, lead_hours=3)
+    assert labels[0] == 0
+
+
+def test_strike_features_are_zero_without_data():
+    empty = lightning_src.empty_features()
+    assert empty["lightning_strike_count"] == 0.0
+    assert set(feat.LIGHTNING_FEATURES) - {"lightning_observed"} <= set(empty)
+
+
+# ==========================================================================
+# Radar decoding
+# ==========================================================================
+
+def test_palette_distance_does_not_overflow():
+    """
+    Guards BUG-026. Squared RGB distances must be computed with enough
+    integer width; in int16 they wrap and distant colours match.
+    """
+    image = np.zeros((4, 4, 3), dtype=np.uint8)
+    image[:, :] = (100, 173, 64)               # green terrain, not an echo
+    dbz = radar.palette_to_dbz(image, mask_furniture=False)
+    assert np.all(np.isnan(dbz)), "terrain must not decode as reflectivity"
+
+
+def test_palette_matches_true_echo_colour():
+    image = np.zeros((4, 4, 3), dtype=np.uint8)
+    image[:, :] = radar.FALLBACK_PALETTE[0][0]
+    dbz = radar.palette_to_dbz(image, mask_furniture=False)
+    assert np.isfinite(dbz).all()
+
+
+def test_reflectivity_features_handle_empty_field():
+    empty = np.full((32, 32), np.nan, dtype=np.float32)
+    result = radar.reflectivity_features(empty)
+    assert result["max_reflectivity_dbz"] == 0.0
+    assert result["echo_coverage_fraction"] == 0.0
+
+
+# ==========================================================================
+# Provenance
+# ==========================================================================
+
+def test_simulated_data_is_never_an_observation():
+    """Guards BUG-004: the core honesty invariant of the whole system."""
+    result = SourceResult(source="x", status=SourceStatus.SIMULATED, data=[1])
+    assert result.ok
+    assert not result.is_observation
+
+
+def test_unavailable_source_is_not_ok():
+    result = SourceResult(source="x", status=SourceStatus.UNAVAILABLE)
+    assert not result.ok
+    assert not result.is_observation
+
+
+def test_simulator_produces_physical_kelvin():
+    frames, _ = mosdac.simulate_convective_sequence(count=3, seed=2)
+    for frame in frames:
+        assert 180.0 <= frame.min() <= frame.max() <= 325.0
+
+
+def test_simulated_storms_actually_move():
+    """
+    Guards BUG-012. The original simulator produced incoherent motion that no
+    optical-flow method could track.
+    """
+    frames, _ = mosdac.simulate_convective_sequence(count=4, seed=5)
+    flow = optical_flow.compute_optical_flow(frames[0], frames[-1])
+    assert float(np.mean(optical_flow.flow_magnitude(flow))) > 0.05
+
+
+def test_overlay_removal_preserves_large_cold_blobs():
+    """De-annotation must not eat genuine convective cloud."""
+    counts = np.full((64, 64), 60, dtype=np.uint8)
+    counts[20:40, 20:40] = 255                     # a large cold anvil
+    counts[5, :] = 255                             # a 1-px graticule line
+
+    repaired, fraction = mosdac.remove_burned_in_overlay(counts)
+    assert repaired[30, 30] == 255                 # blob survives
+    assert repaired[5, 32] < 255                   # line removed
+    assert 0.0 < fraction < 0.05
+
+
+# ==========================================================================
+# Report generation
+# ==========================================================================
+
+def test_detailed_report_survives_missing_features():
+    """
+    Guards BUG-006. The original crashed with ValueError when a feature was
+    absent, because it applied a float format spec to the string 'N/A'.
+    """
+    from utils import llm_alert
+
+    prediction = {
+        "thunderstorm_probability": 55.0,
+        "risk_level": "MODERATE",
+        "prediction": 1,
+        "banner": "test",
+        "model_card": {},
+        "out_of_distribution": [],
+    }
+    report = llm_alert.generate_detailed_report(
+        prediction, "Delhi", {}, None, None)   # deliberately empty features
+    assert "N/A" in report
+    assert "Nowcast" in report
+
+
+def test_template_alert_flags_demonstration_mode():
+    from utils import llm_alert
+
+    text = llm_alert.generate_template_alert(
+        {"risk_level": "HIGH", "thunderstorm_probability": 90.0,
+         "is_demonstration_only": True},
+        "Delhi",
+    )
+    assert "DEMONSTRATION" in text
+
+
+# ==========================================================================
+# Consistency
+# ==========================================================================
+
+def test_consistency_detects_model_physics_disagreement():
+    """
+    The real case from development: an 88% model probability against a capped,
+    low-CAPE atmosphere must be flagged, not silently displayed.
+    """
+    features = {name: 0.0 for name in feat.FEATURE_NAMES}
+    features.update({
+        "nwp_observed": 1.0, "cape_j_kg": 250.0, "cin_j_kg": 160.0,
+        "lifted_index": 2.0, "satellite_observed": 1.0,
+        "deep_convective_fraction": 0.0, "bt_min": 295.0,
+        "radar_observed": 1.0, "max_reflectivity_dbz": 5.0,
+        "is_night": 1.0,
+    })
+    report = consistency.check(features, model_probability=88.0)
+    assert report.level == "major"
+    assert "HIGHER" in report.summary()
+
+
+def test_consistency_agrees_when_everything_supports_convection():
+    features = {name: 0.0 for name in feat.FEATURE_NAMES}
+    features.update({
+        "nwp_observed": 1.0, "cape_j_kg": 3000.0, "cin_j_kg": 5.0,
+        "lifted_index": -6.0, "satellite_observed": 1.0,
+        "deep_convective_fraction": 0.2, "bt_min": 205.0,
+        "radar_observed": 1.0, "max_reflectivity_dbz": 55.0,
+        "convective_fraction": 0.05,
+        "lightning_observed": 1.0, "lightning_strike_count": 40.0,
+        "is_peak_hour": 1.0,
+    })
+    report = consistency.check(features, model_probability=90.0)
+    assert report.level == "agree"
+
+
+def test_unobserved_channels_do_not_count_as_evidence_against():
+    """Absence of measurement is not measurement of absence."""
+    features = {name: 0.0 for name in feat.FEATURE_NAMES}
+    features["lightning_observed"] = 0.0
+    report = consistency.check(features, 50.0)
+    lightning = next(e for e in report.evidence
+                     if e.name == "Lightning network")
+    assert lightning.verdict == "unobserved"
+    assert lightning.score == 0.0
+
+
+# ==========================================================================
+# End to end
+# ==========================================================================
+
+def test_offline_pipeline_runs_end_to_end(frame_sequence, trained_predictor):
+    frames, timestamps = frame_sequence
+
+    flow = optical_flow.compute_optical_flow(frames[-2], frames[-1])
+    flow_features = optical_flow.extract_flow_features(flow, frames[-1])
+    features = feat.build_features(
+        frames[-1], frames[-2], timestamps, flow_features=flow_features)
+
+    prediction = trained_predictor.predict_single(features)
+
+    assert 0.0 <= prediction["thunderstorm_probability"] <= 100.0
+    assert prediction["risk_level"] in {"MINIMAL", "LOW", "MODERATE", "HIGH"}
+    assert "banner" in prediction
+
+    nowcasts, _ = optical_flow.nowcast_sequence(frames)
+    assert len(nowcasts) == len(config.LEAD_TIMES_HOURS)
+
+
+# ==========================================================================
+# Live network
+# ==========================================================================
+
+@pytest.mark.live
+def test_live_insat_fetch():
+    result = mosdac.fetch_channel("IR1")
+    assert result.status == SourceStatus.LIVE
+    assert result.data["brightness_temperature_k"].shape == (
+        config.GRID_SIZE, config.GRID_SIZE)
+
+
+@pytest.mark.live
+def test_live_nwp_fetch():
+    from utils.datasources import nwp
+
+    result = nwp.fetch_nwp(28.6139, 77.2090)
+    assert result.status == SourceStatus.LIVE
+    assert result.data["current"]["cape_j_kg"] >= 0
+
+
+@pytest.mark.live
+def test_live_fusion_covers_multiple_legs():
+    from utils.datasources import fusion
+
+    observation = fusion.fuse(28.6139, 77.2090, "Delhi")
+    assert len(observation.live_legs) >= 2
+    assert set(observation.features) >= set(feat.NWP_FEATURES)

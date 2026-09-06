@@ -1,6 +1,0 @@
-{
-  "groq_works": false,
-  "groq_message": "HTTP Error 403: Forbidden",
-  "openweathermap_works": true,
-  "llm_alert_works": false
-}

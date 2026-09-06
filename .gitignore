@@ -43,3 +43,12 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+
+# Runtime caches (INSAT frame buffer, radar frames, HTTP cache)
+data/cache/
+data/lightning/*.csv
+data/lightning/*.geojson
+
+# Editor / tooling
+.claude/
+.pytest_cache/

@@ -43,7 +43,14 @@
 
 ### ThunderAI — Hybrid AI Nowcasting Engine
 
-**What it does:** Predicts thunderstorm & lightning probability for the next 0–6 hours at hyperlocal scale, in under 5 seconds on any laptop.
+**What it does:** Fuses live INSAT-3D imagery, IMD Doppler radar and NWP
+convective parameters into a 0-6 hour thunderstorm probability, in seconds
+on any laptop - and reports exactly which data legs were live and how much
+skill the model has.
+
+**Current status:** the pipeline is live; the model is trained on synthetic
+labels and is clearly labelled as a demonstration until observed lightning
+data is connected.
 
 **How it works (3-Stage Pipeline):**
 
@@ -278,7 +285,9 @@ Step 6: VISUALIZE         → Streamlit renders heatmap + alert panel
 - **Forecast window:** 0–6 hours
 - **Spatial resolution:** 1–5 km
 - **Compute:** CPU-only, any laptop
-- **Accuracy target:** > 85% POD (Probability of Detection)
+- **Verification plan:** report POD, FAR and CSI against a persistence
+  baseline on a temporal hold-out. No accuracy target is claimed until
+  the model is trained on observed lightning labels.
 
 ### Data Sources
 - INSAT-3D/3DR satellite imagery

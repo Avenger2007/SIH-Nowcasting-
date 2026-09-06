@@ -1,208 +1,317 @@
 """
 utils/optical_flow.py
-Cloud motion estimation using optical flow.
-Implements Farneback dense optical flow (no training needed, runs on CPU in seconds).
+Cloud motion estimation and Lagrangian-persistence nowcasting.
+
+This module was already sound in the original project - Farneback dense flow
+plus semi-Lagrangian advection is the standard operational nowcasting method
+and it was implemented correctly. The changes here are:
+
+  * flow is computed on a CONTRAST-NORMALISED field, so a cold-topped storm
+    does not dominate the estimate purely through its brightness;
+  * a persistence BASELINE is provided, because a nowcast that cannot beat
+    "assume nothing changes" has no skill worth reporting;
+  * convergence is measured where it matters - beneath cold cloud - rather
+    than averaged over the whole scene including clear air.
 """
+
+from __future__ import annotations
+
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
-from typing import Tuple, List
-import os
+
+import config
+from utils.calibration import convective_mask, ensure_kelvin, kelvin_to_counts
 
 
-def compute_optical_flow(prev_img: np.ndarray, next_img: np.ndarray) -> np.ndarray:
+def _to_flow_input(field: np.ndarray) -> np.ndarray:
     """
-    Compute dense optical flow between two satellite images using Farneback method.
-    
-    This estimates cloud motion vectors - where clouds are moving.
-    No training needed, pure mathematical computation.
-    
-    Args:
-        prev_img: Previous satellite image (grayscale or BGR)
-        next_img: Next satellite image (grayscale or BGR)
-    
-    Returns:
-        flow: 2D array of flow vectors (H, W, 2) where flow[...,0] = x, flow[...,1] = y
+    Prepare a raster for Farneback.
+
+    OpenCV wants 8-bit single-channel. Kelvin fields are normalised over the
+    scene's own range so that flow tracks STRUCTURE rather than absolute
+    temperature, which makes the estimate stable across day/night transitions.
     """
-    # Convert to grayscale if needed
-    if len(prev_img.shape) == 3:
-        prev_gray = cv2.cvtColor(prev_img, cv2.COLOR_BGR2GRAY)
-        next_gray = cv2.cvtColor(next_img, cv2.COLOR_BGR2GRAY)
-    else:
-        prev_gray = prev_img
-        next_gray = next_img
-    
-    # Compute Farneback dense optical flow
-    flow = cv2.calcOpticalFlowFarneback(
+    array = np.asarray(field)
+
+    if array.ndim == 3:
+        array = cv2.cvtColor(array, cv2.COLOR_BGR2GRAY)
+
+    if array.dtype == np.uint8:
+        return array
+
+    finite = array[np.isfinite(array)]
+    if finite.size == 0:
+        return np.zeros(array.shape, dtype=np.uint8)
+
+    low, high = np.percentile(finite, [1, 99])
+    if high - low < 1e-6:
+        return np.zeros(array.shape, dtype=np.uint8)
+
+    scaled = np.clip((array - low) / (high - low), 0, 1)
+    # Invert so cold cloud is bright: features to track are then high-valued.
+    return ((1.0 - scaled) * 255).astype(np.uint8)
+
+
+def compute_optical_flow(prev_field: np.ndarray,
+                         next_field: np.ndarray) -> np.ndarray:
+    """
+    Dense Farneback optical flow between two frames.
+
+    Returns an (H, W, 2) array of pixel displacements. No training required -
+    this is pure computation, which is why the whole system runs on a CPU.
+    """
+    prev_gray = _to_flow_input(prev_field)
+    next_gray = _to_flow_input(next_field)
+
+    return cv2.calcOpticalFlowFarneback(
         prev_gray, next_gray, None,
-        pyr_scale=0.5,     # pyramid scale factor
-        levels=3,           # number of pyramid levels
-        winsize=15,         # averaging window size
-        iterations=3,       # iterations at each pyramid level
-        poly_n=5,           # polynomial expansion neighborhood size
-        poly_sigma=1.2,     # Gaussian standard deviation for polynomial expansion
-        flags=0
+        pyr_scale=0.5,
+        levels=3,
+        winsize=21,      # widened: satellite cloud fields are smooth
+        iterations=3,
+        poly_n=5,
+        poly_sigma=1.2,
+        flags=0,
     )
-    
-    return flow
 
 
-def advect_image(img: np.ndarray, flow: np.ndarray, lead_time_steps: int = 1) -> np.ndarray:
+def advect(field: np.ndarray,
+           flow: np.ndarray,
+           steps: float = 1.0) -> np.ndarray:
     """
-    Advect (move) an image along flow vectors to predict future position.
-    This is the "Lagrangian persistence" nowcasting method.
-    
-    Args:
-        img: Input image (grayscale)
-        flow: Optical flow field
-        lead_time_steps: Number of time steps to advect forward
-    
-    Returns:
-        Advected image
+    Move a field along the flow vectors - semi-Lagrangian advection.
+
+    This is Lagrangian persistence: the assumption that cloud features keep
+    moving as they have been moving. It is the workhorse of 0-2 hour
+    nowcasting and remains hard to beat at short lead times.
+
+    Note the sign: to find what arrives at pixel p after advection, sample the
+    source location p - flow*steps, so the remap uses the NEGATIVE flow.
     """
-    h, w = img.shape[:2]
-    
-    # Create coordinate grid
-    flow_map_x = np.arange(w, dtype=np.float32)
-    flow_map_y = np.arange(h, dtype=np.float32)
-    flow_map_x, flow_map_y = np.meshgrid(flow_map_x, flow_map_y)
-    
-    # Add flow to coordinates (scale by lead time)
-    flow_map_x = (flow_map_x + flow[..., 0] * lead_time_steps).astype(np.float32)
-    flow_map_y = (flow_map_y + flow[..., 1] * lead_time_steps).astype(np.float32)
-    
-    # Remap image using new coordinates
-    advected = cv2.remap(
-        img.astype(np.float32),
-        flow_map_x,
-        flow_map_y,
-        cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_REFLECT
+    height, width = field.shape[:2]
+
+    grid_x, grid_y = np.meshgrid(
+        np.arange(width, dtype=np.float32),
+        np.arange(height, dtype=np.float32),
     )
-    
-    return advected
+
+    map_x = (grid_x - flow[..., 0] * steps).astype(np.float32)
+    map_y = (grid_y - flow[..., 1] * steps).astype(np.float32)
+
+    return cv2.remap(
+        field.astype(np.float32), map_x, map_y,
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
 
 
-def compute_flow_magnitude(flow: np.ndarray) -> np.ndarray:
-    """Compute magnitude of flow vectors."""
-    return np.sqrt(flow[..., 0]**2 + flow[..., 1]**2)
+def flow_magnitude(flow: np.ndarray) -> np.ndarray:
+    return np.hypot(flow[..., 0], flow[..., 1])
 
 
-def compute_flow_direction(flow: np.ndarray) -> np.ndarray:
-    """Compute direction of flow vectors in degrees."""
-    return np.degrees(np.arctan2(flow[..., 1], flow[..., 0]))
+def flow_direction(flow: np.ndarray) -> np.ndarray:
+    """Direction in degrees, meteorological convention (0 = from north)."""
+    return np.degrees(np.arctan2(flow[..., 0], -flow[..., 1])) % 360.0
 
 
-def extract_flow_features(flow: np.ndarray, img: np.ndarray) -> dict:
+def extract_flow_features(flow: np.ndarray,
+                          bt_field: Optional[np.ndarray] = None
+                          ) -> Dict[str, float]:
     """
-    Extract statistical features from optical flow for ML model.
-    
-    Returns:
-        Dictionary of flow features
+    Statistical flow features.
+
+    ``convergence_in_cold_cloud`` is the meteorologically meaningful one:
+    low-level convergence collocated with cold cloud top is where new cells
+    develop. Averaging convergence over the whole scene - as the original code
+    did - dilutes that signal with clear-air noise.
     """
-    magnitude = compute_flow_magnitude(flow)
-    direction = compute_flow_direction(flow)
-    
-    # Convergence (negative divergence = convergence = rising air = storms)
-    # Approximate divergence using finite differences
-    dflow_dx = cv2.Sobel(flow[..., 0], cv2.CV_64F, 1, 0, ksize=3)
-    dflow_dy = cv2.Sobel(flow[..., 1], cv2.CV_64F, 0, 1, ksize=3)
-    divergence = dflow_dx + dflow_dy
-    convergence = -divergence
-    
-    # Features
+    magnitude = flow_magnitude(flow)
+    direction = flow_direction(flow)
+
+    du_dx = cv2.Sobel(flow[..., 0], cv2.CV_32F, 1, 0, ksize=3)
+    dv_dy = cv2.Sobel(flow[..., 1], cv2.CV_32F, 0, 1, ksize=3)
+    convergence = -(du_dx + dv_dy)
+
+    # Circular mean for direction: a plain mean of 359 and 1 gives 180.
+    radians = np.radians(direction)
+    mean_direction = float(
+        np.degrees(np.arctan2(np.mean(np.sin(radians)), np.mean(np.cos(radians))))
+        % 360.0
+    )
+    circular_std = float(
+        np.degrees(np.sqrt(-2 * np.log(
+            np.hypot(np.mean(np.sin(radians)), np.mean(np.cos(radians))) + 1e-12
+        )))
+    )
+
     features = {
         "flow_magnitude_mean": float(np.mean(magnitude)),
         "flow_magnitude_std": float(np.std(magnitude)),
         "flow_magnitude_max": float(np.max(magnitude)),
-        "flow_direction_mean": float(np.mean(direction)),
-        "flow_direction_std": float(np.std(direction)),
+        "flow_direction_mean": mean_direction,
+        "flow_direction_std": min(circular_std, 360.0),
         "convergence_mean": float(np.mean(convergence)),
         "convergence_max": float(np.max(convergence)),
         "convergence_min": float(np.min(convergence)),
         "convergence_std": float(np.std(convergence)),
+        "convergence_in_cold_cloud": 0.0,
     }
-    
+
+    if bt_field is not None:
+        cold = convective_mask(ensure_kelvin(bt_field), config.BT_CONVECTIVE_K)
+        if cold.any():
+            features["convergence_in_cold_cloud"] = float(
+                np.mean(convergence[cold])
+            )
+
     return features
 
 
-def visualize_flow(flow: np.ndarray, img: np.ndarray = None, 
-                   step: int = 16, color: tuple = (0, 255, 0)) -> np.ndarray:
+# --------------------------------------------------------------------------
+# Nowcasting
+# --------------------------------------------------------------------------
+
+def nowcast_sequence(frames: Sequence[np.ndarray],
+                     lead_times_hours: Sequence[int] = config.LEAD_TIMES_HOURS,
+                     interval_minutes: float = config.SATELLITE_INTERVAL_MIN,
+                     ) -> Tuple[List[np.ndarray], np.ndarray]:
     """
-    Create optical flow visualization (arrows on image).
-    
+    Advect the latest frame forward to each lead time.
+
     Args:
-        flow: Optical flow field
-        img: Background image (optional)
-        step: Sampling step for arrows
-        color: Arrow color (BGR)
-    
+        frames: chronological IR fields, at least two.
+        lead_times_hours: forecast lead times.
+        interval_minutes: spacing between input frames. Flow is measured PER
+            FRAME INTERVAL, so converting a lead time in hours to a number of
+            advection steps requires this. The original code advected by
+            ``lead_time_steps=1..6`` and captioned the result "6 hours ahead",
+            which silently assumed hourly frames - wrong for 30-minute INSAT
+            imagery, by a factor of two.
+
     Returns:
-        Visualization image
+        (nowcast frames, the flow field used)
     """
-    if img is None:
-        h, w = flow.shape[:2]
-        vis = np.zeros((h, w, 3), dtype=np.uint8)
+    if len(frames) < 2:
+        raise ValueError("Need at least two frames to estimate motion.")
+
+    flow = compute_optical_flow(frames[-2], frames[-1])
+    steps_per_hour = 60.0 / interval_minutes
+
+    nowcasts = [
+        advect(frames[-1], flow, steps=lead * steps_per_hour)
+        for lead in lead_times_hours
+    ]
+    return nowcasts, flow
+
+
+def persistence_baseline(frames: Sequence[np.ndarray],
+                         lead_times_hours: Sequence[int] = config.LEAD_TIMES_HOURS,
+                         ) -> List[np.ndarray]:
+    """
+    Eulerian persistence: assume nothing moves or changes.
+
+    This is the baseline every nowcast must beat. Reporting a CSI without
+    comparing against it says nothing about whether the model adds value.
+    """
+    return [np.array(frames[-1], copy=True) for _ in lead_times_hours]
+
+
+def storm_cell_tracks(frames: Sequence[np.ndarray],
+                      interval_minutes: float = config.SATELLITE_INTERVAL_MIN,
+                      ) -> List[Dict]:
+    """
+    Track convective cells across the frame sequence.
+
+    Cells are identified as connected cold regions, then matched between
+    consecutive frames by nearest centroid. Gives per-cell speed, bearing and
+    whether the cell is growing or decaying - the information a forecaster
+    actually wants from a nowcast.
+    """
+    tracks: List[Dict] = []
+    previous: List[Dict] = []
+
+    for index, frame in enumerate(frames):
+        field = ensure_kelvin(frame)
+        binary = convective_mask(field, config.BT_CONVECTIVE_K).astype(np.uint8)
+
+        count, labels, stats, centroids = cv2.connectedComponentsWithStats(
+            binary, connectivity=8
+        )
+
+        current: List[Dict] = []
+        for label in range(1, count):
+            area = int(stats[label, cv2.CC_STAT_AREA])
+            if area < 40:            # ignore speckle
+                continue
+            cell_mask = labels == label
+            current.append({
+                "centroid": (float(centroids[label][0]), float(centroids[label][1])),
+                "area": area,
+                "min_bt": float(np.min(field[cell_mask])),
+                "frame": index,
+            })
+
+        # Match to the previous frame by nearest centroid.
+        for cell in current:
+            best, best_distance = None, 1e9
+            for candidate in previous:
+                distance = float(np.hypot(
+                    cell["centroid"][0] - candidate["centroid"][0],
+                    cell["centroid"][1] - candidate["centroid"][1],
+                ))
+                if distance < best_distance:
+                    best, best_distance = candidate, distance
+
+            if best is not None and best_distance < 40:
+                dx = cell["centroid"][0] - best["centroid"][0]
+                dy = cell["centroid"][1] - best["centroid"][1]
+                cell["speed_px_per_frame"] = float(np.hypot(dx, dy))
+                cell["bearing_deg"] = float(np.degrees(np.arctan2(dx, -dy)) % 360)
+                cell["area_change"] = cell["area"] - best["area"]
+                cell["bt_change"] = cell["min_bt"] - best["min_bt"]
+                cell["intensifying"] = bool(
+                    cell["bt_change"] < -1.0 or cell["area_change"] > best["area"] * 0.15
+                )
+
+        tracks.extend(current)
+        previous = current
+
+    return tracks
+
+
+# --------------------------------------------------------------------------
+# Visualisation
+# --------------------------------------------------------------------------
+
+def visualise_flow(flow: np.ndarray,
+                   background: Optional[np.ndarray] = None,
+                   step: int = 16,
+                   color: Tuple[int, int, int] = (0, 255, 120)) -> np.ndarray:
+    """Draw flow arrows over a background frame."""
+    if background is None:
+        height, width = flow.shape[:2]
+        canvas = np.zeros((height, width, 3), dtype=np.uint8)
     else:
-        vis = img.copy() if len(img.shape) == 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    
-    h, w = flow.shape[:2]
-    y, x = np.mgrid[step/2:h:step, step/2:w:step].reshape(2, -1).astype(int)
-    fx, fy = flow[y, x].T
-    
-    lines = np.vstack([x, y, x+fx, y+fy]).T.reshape(-1, 2, 2)
-    lines = np.int32(lines + 0.5)
-    
-    for (x1, y1), (x2, y2) in lines:
-        cv2.arrowedLine(vis, (x1, y1), (x2, y2), color, 1, tipLength=0.3)
-    
-    return vis
+        field = np.asarray(background)
+        if field.ndim == 2:
+            gray = field if field.dtype == np.uint8 else kelvin_to_counts(field)
+            canvas = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        else:
+            canvas = field.copy()
 
+    height, width = flow.shape[:2]
+    ys, xs = np.mgrid[step // 2:height:step, step // 2:width:step].reshape(2, -1)
+    ys, xs = ys.astype(int), xs.astype(int)
 
-def create_nowcast_sequence(images: List[np.ndarray], lead_times: List[int] = None) -> List[np.ndarray]:
-    """
-    Create a sequence of nowcast images for multiple lead times.
-    
-    Args:
-        images: List of satellite images (chronological order)
-        lead_times: List of lead time steps to predict
-    
-    Returns:
-        List of nowcast images
-    """
-    if lead_times is None:
-        lead_times = [1, 2, 3, 4, 5, 6]  # 6 hours ahead (assuming 1hr steps)
-    
-    # Compute flow from last two images
-    flow = compute_optical_flow(images[-2], images[-1])
-    
-    nowcasts = []
-    for lt in lead_times:
-        nowcast = advect_image(images[-1], flow, lead_time_steps=lt)
-        nowcasts.append(nowcast)
-    
-    return nowcasts
+    for x, y in zip(xs, ys):
+        fx, fy = flow[y, x]
+        if np.hypot(fx, fy) < 0.5:
+            continue
+        cv2.arrowedLine(
+            canvas, (x, y), (int(x + fx * 3), int(y + fy * 3)),
+            color, 1, tipLength=0.35,
+        )
 
-
-if __name__ == "__main__":
-    # Test with sample images
-    from satellite import generate_sample_satellite_images
-    
-    image_paths, timestamps = generate_sample_satellite_images(count=6)
-    
-    # Load images
-    images = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in image_paths]
-    
-    # Compute optical flow
-    flow = compute_optical_flow(images[-2], images[-1])
-    
-    # Extract features
-    features = extract_flow_features(flow, images[-1])
-    
-    print("✅ Optical flow computed")
-    print(f"   Flow shape: {flow.shape}")
-    print(f"   Features: {features}")
-    
-    # Create nowcasts
-    nowcasts = create_nowcast_sequence(images, lead_times=[1, 3, 6])
-    print(f"   Generated {len(nowcasts)} nowcast frames")
+    return canvas

@@ -1,0 +1,309 @@
+{
+  "generated": "2026-09-06",
+  "description": "Bug and issue register for the SIH 2026 nowcasting system. Rendered live in the dashboard's Diagnostics panel.",
+  "issues": [
+    {
+      "id": "BUG-001",
+      "severity": "critical",
+      "title": "Model trained on Gaussian noise, scored on physical units",
+      "area": "ML",
+      "status": "fixed",
+      "found": "utils/predictor.py:229 (original)",
+      "detail": "generate_synthetic_training_data drew X from np.random.randn, so every tree split sat in roughly [-3, 3]. Inference fed real values such as pressure 1013 hPa and brightness temperature 250 K, so every real sample fell off the same end of every split and the output collapsed to a near-constant probability.",
+      "impact": "The dashboard's probability gauge was effectively a constant. It did not respond to the imagery.",
+      "fix": "Synthetic features are now drawn on their true physical scales, a temporal train/test split is enforced, and the model card records training_data='synthetic' so every surface labels the output as a demonstration."
+    },
+    {
+      "id": "BUG-002",
+      "severity": "critical",
+      "title": "Silent feature column-order mismatch",
+      "area": "ML",
+      "status": "fixed",
+      "found": "utils/features.py:249 vs utils/predictor.py:246 (original)",
+      "detail": "build_feature_vector returned features sorted alphabetically; train_and_save_model assigned names in a different hand-written order; the saved model carried no feature_names at all. XGBoost silently accepted any column order.",
+      "impact": "Wrong values were fed into the wrong trees with no error raised.",
+      "fix": "FeatureContract persists the ordered names plus the training distribution. align() looks features up BY NAME, and load_model() refuses any model saved without a contract."
+    },
+    {
+      "id": "BUG-003",
+      "severity": "critical",
+      "title": "No radar, lightning or NWP data despite being named in the problem statement",
+      "area": "Data",
+      "status": "fixed",
+      "found": "project-wide",
+      "detail": "PS 26072 requires 'multiple radars, satellite, lightning and model data'. The original implemented only simulated satellite imagery plus a point weather API.",
+      "impact": "Three of the four required data legs were absent; radar and lightning appeared only in the pitch documents.",
+      "fix": "utils/datasources/ adds IMD DWR multi-radar composites, lightning network adapters with a local-archive path, and live NWP convective parameters. Each returns explicit provenance."
+    },
+    {
+      "id": "BUG-004",
+      "severity": "critical",
+      "title": "Simulated imagery presented as real observations",
+      "area": "Data",
+      "status": "fixed",
+      "found": "utils/satellite.py:14, app.py:270 (original)",
+      "detail": "generate_sample_satellite_images produced random blobs with np.random.seed(42); the dashboard captioned them 'Latest IR Image'. fetch_mosdac_data never fetched anything - it wrote a config file, printed instructions and returned an empty list.",
+      "impact": "A judge would reasonably have believed they were looking at live INSAT data.",
+      "fix": "Every source returns a SourceStatus (live / cached / stale / simulated / unavailable / needs_credentials). Simulated data is labelled in the UI and cannot be mistaken for an observation. Live INSAT imagery now works via the public MOSDAC gallery endpoint."
+    },
+    {
+      "id": "BUG-005",
+      "severity": "high",
+      "title": "No verification metrics; accuracy quoted on training data",
+      "area": "ML",
+      "status": "fixed",
+      "found": "DOCUMENTATION.md:438, 489",
+      "detail": "Documentation claimed '99%+ accuracy on synthetic data'. That was training-set accuracy on random noise. No train/test split, no POD/FAR/CSI, no ROC - the metrics IMD and WMO actually use for rare-event verification.",
+      "impact": "The headline claim would not survive the first question from a domain expert.",
+      "fix": "utils/metrics.py implements the full 2x2 contingency table (POD, FAR, CSI, BIAS, HSS, PSS), Brier score, Brier skill score, ROC and reliability curves, plus skill relative to a persistence baseline."
+    },
+    {
+      "id": "BUG-006",
+      "severity": "high",
+      "title": "Report generator crashes on any missing feature",
+      "area": "Code",
+      "status": "fixed",
+      "found": "utils/llm_alert.py:186 (original)",
+      "detail": "generate_detailed_report used f-strings of the form {features.get('x', 'N/A'):.2f}. When the key was absent this evaluates format('N/A', '.2f'), which raises ValueError rather than printing 'N/A'.",
+      "impact": "The detailed report crashed instead of degrading gracefully.",
+      "fix": "All numeric formatting goes through _fmt(), which type-checks before applying a format spec."
+    },
+    {
+      "id": "BUG-007",
+      "severity": "high",
+      "title": "Physical thresholds applied to 8-bit display values",
+      "area": "Science",
+      "status": "fixed",
+      "found": "utils/features.py:53, 95, 121 (original)",
+      "detail": "Convective detection used 'img < 150' against raw PNG pixel values. Real INSAT L1B products carry brightness temperature in Kelvin, and different browse products use different display stretches.",
+      "impact": "The physics narrative would not survive contact with real satellite data.",
+      "fix": "utils/calibration.py converts counts to Kelvin once at ingestion. All thresholds are now stated in Kelvin (241 K anvil, 221 K deep convection, 205 K overshooting top)."
+    },
+    {
+      "id": "BUG-008",
+      "severity": "high",
+      "title": "Lead time silently wrong by a factor of two",
+      "area": "Science",
+      "status": "fixed",
+      "found": "utils/optical_flow.py:180 (original)",
+      "detail": "create_nowcast_sequence advected by lead_time_steps=1..6 and the comment claimed '6 hours ahead (assuming 1hr steps)'. INSAT imagery arrives every 30 minutes, so six steps is three hours, not six.",
+      "impact": "Every nowcast frame was labelled with double its true lead time.",
+      "fix": "nowcast_sequence takes lead times in HOURS and converts using the actual frame interval."
+    },
+    {
+      "id": "BUG-009",
+      "severity": "medium",
+      "title": "use_label_encoder removed in XGBoost 2.0",
+      "area": "Code",
+      "status": "fixed",
+      "found": "utils/predictor.py:63 (original)",
+      "detail": "XGBClassifier(use_label_encoder=False) while requirements.txt pinned xgboost>=2.0.0, where the parameter no longer exists. Installed version here is 3.2.0.",
+      "impact": "Training would warn or fail on any modern XGBoost.",
+      "fix": "Parameter removed; eval_metric switched to 'aucpr', which is the appropriate metric for a rare event."
+    },
+    {
+      "id": "BUG-010",
+      "severity": "medium",
+      "title": "Feature importance chart never rendered",
+      "area": "UI",
+      "status": "fixed",
+      "found": "app.py:290 (original)",
+      "detail": "The chart was guarded by results.get('predictor'), but run_prediction in app.py never placed 'predictor' in its return dict. The branch was permanently dead and failed silently.",
+      "impact": "A headline explainability feature was invisible with no error shown.",
+      "fix": "The merged app returns the predictor and renders grouped feature importance."
+    },
+    {
+      "id": "BUG-011",
+      "severity": "medium",
+      "title": "LLM alert path unreachable from the main app",
+      "area": "Code",
+      "status": "fixed",
+      "found": "app.py:161 (original)",
+      "detail": "app.py called generate_template_alert directly, so generate_alert - and therefore the LLM - was never invoked regardless of the configured key. The Groq model id was also 'groq/compound', which is not a chat model and returned HTTP 403 (recorded in the committed api_test_results.json).",
+      "impact": "The advertised LLM alerting never ran.",
+      "fix": "generate_alert is the single entry point and falls back to templates internally. Model id defaults to llama-3.3-70b-versatile and is configurable via GROQ_MODEL."
+    },
+    {
+      "id": "BUG-012",
+      "severity": "medium",
+      "title": "Cloud simulator produced incoherent, untrackable motion",
+      "area": "Science",
+      "status": "fixed",
+      "found": "utils/satellite.py:44-62 (original)",
+      "detail": "Cell masks used np.ogrid[-cx:256-cx, -cy:256-cy], placing cx on the row axis and cy on the column axis - the coordinates were swapped. Noise was re-added inside the per-cell loop, compounding with each cell. Motion came from np.roll, which wraps at the edges.",
+      "impact": "No optical-flow method could track the result coherently, so the flow features were noise.",
+      "fix": "The simulator now models advection with a common steering flow, cell life cycles that cool then warm, and downshear anvil spreading."
+    },
+    {
+      "id": "BUG-013",
+      "severity": "medium",
+      "title": "Circular mean computed as an arithmetic mean",
+      "area": "Science",
+      "status": "fixed",
+      "found": "utils/optical_flow.py:110 (original)",
+      "detail": "flow_direction_mean averaged degrees arithmetically. The mean of 359 deg and 1 deg is 180 deg by that method - the exact opposite of the true direction.",
+      "impact": "The reported storm bearing could be inverted.",
+      "fix": "Direction now uses the circular mean via atan2 of summed sine and cosine components, with circular standard deviation."
+    },
+    {
+      "id": "BUG-014",
+      "severity": "medium",
+      "title": "Advection applied the flow field with the wrong sign",
+      "area": "Science",
+      "status": "fixed",
+      "found": "utils/optical_flow.py:66-70 (original)",
+      "detail": "advect_image built its remap grid as coordinate + flow. cv2.remap samples the SOURCE location for each destination pixel, so forward advection requires coordinate - flow. The original moved cloud features backwards along their motion vector.",
+      "impact": "Nowcast frames advected storms in the reverse direction.",
+      "fix": "The remap grid now subtracts the flow, and the sign convention is documented in the docstring."
+    },
+    {
+      "id": "BUG-015",
+      "severity": "low",
+      "title": "Deprecated Streamlit and Python APIs",
+      "area": "Code",
+      "status": "fixed",
+      "found": "app.py:270-284, utils/satellite.py:71",
+      "detail": "st.image(use_column_width=True) is removed in current Streamlit (1.63 installed here), and datetime.utcnow() is deprecated from Python 3.12.",
+      "impact": "Deprecation warnings now, breakage on the next release.",
+      "fix": "Switched to use_container_width and timezone-aware datetime.now(timezone.utc)."
+    },
+    {
+      "id": "BUG-016",
+      "severity": "low",
+      "title": "Two near-duplicate dashboards with no stated entry point",
+      "area": "Code",
+      "status": "fixed",
+      "found": "app.py, app_enhanced.py",
+      "detail": "About 200 lines of pipeline code were copy-pasted between the two files, and they had diverged - app_enhanced.py returned the predictor while app.py did not.",
+      "impact": "Fixes applied to one file silently missed the other.",
+      "fix": "Merged into a single app.py."
+    },
+    {
+      "id": "BUG-017",
+      "severity": "low",
+      "title": "Return type contradicted the annotation",
+      "area": "Code",
+      "status": "fixed",
+      "found": "utils/features.py:196 (original)",
+      "detail": "build_feature_vector was annotated '-> np.ndarray' but returned a (vector, names) tuple.",
+      "impact": "Misleading to callers and to type checkers.",
+      "fix": "build_features returns a Dict[str, float] and is annotated accordingly."
+    },
+    {
+      "id": "BUG-018",
+      "severity": "low",
+      "title": "Convergence diluted by clear-air pixels",
+      "area": "Science",
+      "status": "fixed",
+      "found": "utils/optical_flow.py:118 (original)",
+      "detail": "Convergence was averaged over the entire scene, including clear air where it carries no convective meaning.",
+      "impact": "The one genuinely predictive flow feature was buried in noise.",
+      "fix": "Added convergence_in_cold_cloud, restricted to pixels beneath cold cloud tops where new cells actually develop."
+    },
+    {
+      "id": "BUG-019",
+      "severity": "low",
+      "title": "Unused parameter in the flow feature extractor",
+      "area": "Code",
+      "status": "fixed",
+      "found": "utils/optical_flow.py:88 (original)",
+      "detail": "extract_flow_features(flow, img) never used img.",
+      "impact": "Dead parameter implying a capability that was not there.",
+      "fix": "The brightness-temperature field is now genuinely used, to mask convergence to cold cloud."
+    },
+    {
+      "id": "BUG-020",
+      "severity": "low",
+      "title": "Wrong API key format in the example environment file",
+      "area": "Docs",
+      "status": "fixed",
+      "found": ".env.example:6",
+      "detail": "GROQ_API_KEY was shown as 'groq_xxx...'. Real Groq keys begin with 'gsk_'.",
+      "impact": "Minor, but it sends a new contributor looking for the wrong thing.",
+      "fix": "Corrected, and MOSDAC_BROWSE_URL plus the lightning network variables documented."
+    },
+    {
+      "id": "BUG-026",
+      "severity": "critical",
+      "title": "int16 overflow made radar decode terrain as 40 dBZ echo",
+      "area": "Data",
+      "status": "fixed",
+      "found": "utils/datasources/radar.py:palette_to_dbz (introduced during this rebuild)",
+      "detail": "Nearest-colour matching computed squared RGB distances in int16. A squared channel difference reaches 255^2 = 65025 and the three-channel sum reaches 195075, both far beyond the int16 maximum of 32767, so the arithmetic wrapped around. Genuinely distant colours scored as near matches: the green terrain basemap (100,173,64) wrapped to a small distance and decoded as a 40 dBZ echo.",
+      "impact": "Radar reported ~50% echo coverage and a pinned 61 dBZ maximum on every scan, including clear skies. Caught by cross-checking decoded coverage against the visible image.",
+      "fix": "Distances are computed in int32. Decoded coverage for Delhi fell from 49.8% to 1.65%, Goa to 0.03% (clear), and Jot correctly shows a 58 dBZ convective core. Verified against a pixel overlay of the source image."
+    },
+    {
+      "id": "BUG-027",
+      "severity": "high",
+      "title": "Radar legend and basemap decoded as reflectivity",
+      "area": "Data",
+      "status": "fixed",
+      "found": "utils/datasources/radar.py",
+      "detail": "IMD MAX_Z products embed vertical cross-section panels, a station info box and a printed colour-scale legend, all drawn in the same palette as the echoes. Decoding the whole frame counted the legend's top swatch as a 60+ dBZ core on every fetch.",
+      "impact": "Peak reflectivity was pinned at the palette maximum regardless of actual weather.",
+      "fix": "detect_scan_area locates the circular PPI disc from the green terrain basemap and intersects it with the basemap bounding box, excluding panels and legend. The palette is now READ FROM the legend printed in each image rather than hardcoded, so it adapts per station."
+    },
+    {
+      "id": "BUG-028",
+      "severity": "high",
+      "title": "ROC AUC understated by integrating a sampled curve",
+      "area": "ML",
+      "status": "fixed",
+      "found": "utils/metrics.py:auc (introduced during this rebuild)",
+      "detail": "AUC was computed by trapezoidal integration of the ROC curve sampled on a 51-point threshold grid. Many thresholds share the same false-alarm rate, so once the points were sorted by x the trapezoid rule integrated straight through the vertical segment at x=0 and discarded its area. Perfectly separable data scored 0.833 instead of 1.0.",
+      "impact": "Every reported AUC was biased low, which would have understated the model in the verification panel and in the report.",
+      "fix": "Replaced with the exact Mann-Whitney rank identity (AUC = probability a random positive outranks a random negative), with average ranks for ties. Caught by test_auc_of_perfect_separation_is_one."
+    },
+    {
+      "id": "ISSUE-021",
+      "severity": "high",
+      "title": "No observed training labels yet",
+      "area": "ML",
+      "status": "open",
+      "detail": "The model is still fitted to synthetic data. Real skill requires training against observed lightning strikes as labels, over at least one storm season.",
+      "impact": "Until this is done the system demonstrates a working pipeline, not a skilful forecast. Every surface says so.",
+      "next_step": "Drop an IITM/ENTLN lightning export into data/lightning/ as CSV (time,lat,lon), collect INSAT frames over a season, then run scripts/train_real.py. utils.datasources.lightning.build_labels already implements the forward-looking event definition."
+    },
+    {
+      "id": "ISSUE-022",
+      "severity": "medium",
+      "title": "Only 3 of 37 DWR sites publish public products",
+      "area": "Data",
+      "status": "open",
+      "detail": "Probing mausam.imd.gov.in found live products for Delhi, Goa and Jot only. The remaining stations either use different URL slugs or are not published publicly.",
+      "impact": "The multi-radar composite usually has one contributing radar, not several.",
+      "next_step": "Institutional access to IMD Level-II volumes would resolve this. The network probe in utils.datasources.radar.network_status reports live status honestly in the meantime."
+    },
+    {
+      "id": "ISSUE-023",
+      "severity": "medium",
+      "title": "Satellite brightness temperature is uncalibrated",
+      "area": "Science",
+      "status": "open",
+      "detail": "The public MOSDAC gallery serves rendered 8-bit JPEGs. Kelvin is recovered by inverting an assumed linear display stretch (180-320 K), which is an approximation.",
+      "impact": "Absolute cloud-top temperatures carry systematic error; relative structure and cooling rates are still usable.",
+      "next_step": "Register for a free MOSDAC account and use the L1B NetCDF Order API, which carries true calibrated Kelvin."
+    },
+    {
+      "id": "ISSUE-024",
+      "severity": "medium",
+      "title": "Cloud motion needs two INSAT scans to become available",
+      "area": "Data",
+      "status": "open",
+      "detail": "The public gallery serves only the newest scan per product, so a motion estimate requires frames accumulated across runs. The rolling buffer collects them, deduplicated by content hash.",
+      "impact": "On a cold start, motion features are zero and the UI says so.",
+      "next_step": "Run the collector (scripts/collect_frames.py) on a 30-minute schedule to keep the buffer warm ahead of a demonstration."
+    },
+    {
+      "id": "ISSUE-025",
+      "severity": "low",
+      "title": "Full-disk to India crop is approximate",
+      "area": "Science",
+      "status": "open",
+      "detail": "The Indian region is cut from the full disk using fixed pixel fractions rather than the L1B geolocation grid, so features are not precisely georeferenced to the selected city.",
+      "impact": "Satellite features describe the broad Indian region rather than the specific point.",
+      "next_step": "Use the latitude/longitude arrays in the L1B NetCDF to extract a true bounding box around the point of interest."
+    }
+  ]
+}

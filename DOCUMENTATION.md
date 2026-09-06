@@ -381,7 +381,9 @@ OPENWEATHER_API_KEY = "***"
 ## 🎤 SIH Presentation Talking Points
 
 ### Opening (30 seconds)
-> "Every year, lightning kills over 2,000 Indians. IMD's current warnings cover entire districts with 3-6 hour delays. We built a system that predicts thunderstorms at village-level resolution in 5 seconds — on a laptop with no GPU."
+> "Lightning kills over 2,000 people a year in India. We built a nowcasting pipeline that fuses live INSAT-3D imagery, IMD Doppler radar and NWP convective parameters in seconds on a CPU — and that tells you honestly how much of its data is real and how much skill it has."
+
+Note on claims: we do not claim village-level resolution. The satellite crop is regional (approximately 4 km INSAT pixels over a fixed Indian box) and the radar composite is limited to whichever DWR sites publish public products. Both limits are stated in the dashboard.
 
 ### Problem (1 minute)
 - Thunderstorms kill 2,000+ Indians annually (IMD data)
@@ -418,7 +420,9 @@ OPENWEATHER_API_KEY = "***"
 ## ❓ Judge Q&A Preparation
 
 ### Q1: Why not use deep learning (CNN/LSTM)?
-**A:** Deep learning requires GPU and large datasets. Our hybrid approach uses optical flow (physics-based, no training) + XGBoost (trains in minutes on CPU). For 0-6 hour nowcasting, this matches deep learning accuracy at 1/100th the compute cost. Judges care about deployability — our system runs on a ₹30,000 laptop.
+**A:** Deep learning needs a GPU and a large labelled archive, and we have neither yet. Our hybrid approach uses optical flow (physics-based, no training required) plus gradient-boosted trees (minutes to train on a CPU, and interpretable). 
+
+We do not claim this matches deep learning. Published nowcasting results suggest deep models do better at longer lead times given enough data; at 0-2 hours, optical-flow advection remains a strong and hard-to-beat baseline. Our claim is narrower and defensible: the whole pipeline runs on any laptop, and every component is auditable.
 
 ### Q2: How is this different from IMD's existing system?
 **A:** IMD uses Numerical Weather Prediction (NWP) models that take hours to run and give district-level forecasts. Our system:
@@ -435,7 +439,11 @@ OPENWEATHER_API_KEY = "***"
 - **Groq**: LLM API (free tier: 1500/day)
 
 ### Q4: How do you handle false alarms?
-**A:** Our XGBoost outputs probability, not binary. We classify into 4 risk levels (MINIMAL/LOW/MODERATE/HIGH). Users can set thresholds. The model achieves 99%+ accuracy on synthetic data. With real IMD data, we expect 85-90% accuracy.
+**A:** Our XGBoost outputs a probability, not a binary call, classified into four risk bands (MINIMAL/LOW/MODERATE/HIGH) with a user-settable threshold.
+
+We do NOT quote an accuracy figure, for two reasons. First, accuracy is the wrong metric for a rare event: if storms occur on 5% of samples, always forecasting 'no storm' scores 95% and is useless. We report POD, FAR, CSI, HSS, Brier skill score and reliability instead, which is what IMD and WMO use. Second, the current model is fitted to SYNTHETIC labels, so any score it produces measures the verification machinery, not forecast skill. The dashboard says so above every number.
+
+Real skill requires training against observed lightning strikes (scripts/train_real.py). When that is done we will report CSI against a persistence baseline, which is the only number that means anything.
 
 ### Q5: What about areas without internet?
 **A:** The model runs locally. For offline deployment, we can:
@@ -486,7 +494,8 @@ OPENWEATHER_API_KEY = "***"
 | Model Size | ~2 MB |
 | Training Time | ~10 minutes |
 | Hardware | CPU only (no GPU) |
-| Accuracy (synthetic) | 99%+ |
+| Verification metrics | POD, FAR, CSI, HSS, Brier, ROC, reliability |
+| Training labels | SYNTHETIC - not yet skilful, see ISSUE-021 |
 | API Cost | ₹0 (free tiers) |
 
 ---

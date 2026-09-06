@@ -1,24 +1,36 @@
 # requirements.txt
-# Core dependencies for SIH Thunderstorm Nowcasting
+# SIH 2026 - Thunderstorm & Lightning Nowcasting (PS 26072)
+#
+# Everything here is pure-Python or has prebuilt wheels for Windows, macOS and
+# Linux. No GPU, no compiler, no native GRIB stack.
 
 # Data & ML
 numpy>=1.24.0
 pandas>=2.0.0
 scikit-learn>=1.3.0
-xgboost>=2.0.0
+xgboost>=2.0.0            # 2.0 removed use_label_encoder; the code is compatible
 opencv-python>=4.8.0
 Pillow>=10.0.0
 
 # Dashboard
-streamlit>=1.28.0
+streamlit>=1.30.0         # use_container_width; use_column_width is removed
 plotly>=5.18.0
 
-# API & HTTP
+# Networking
 requests>=2.31.0
 
-# LLM (Groq)
+# Optional: LLM alert phrasing (falls back to templates when absent)
 groq>=0.11.0
 
 # Utilities
 python-dotenv>=1.0.0
 joblib>=1.3.0
+
+# Tests
+pytest>=7.4.0
+
+# NOT included on purpose:
+#   cfgrib / eccodes   - needed only for direct GFS GRIB2 decoding. Heavy
+#                        native dependencies; the Open-Meteo path gives the
+#                        same convective parameters over plain HTTP.
+#   netCDF4            - needed only for calibrated MOSDAC L1B products.
