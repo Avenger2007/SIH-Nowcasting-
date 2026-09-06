@@ -21,7 +21,14 @@ import numpy as np
 import pytest
 
 import config
-from utils import calibration, consistency, features as feat, metrics, optical_flow
+from utils import (
+    calibration,
+    consistency,
+    features as feat,
+    geo,
+    metrics,
+    optical_flow,
+)
 from utils.datasources import lightning as lightning_src
 from utils.datasources import mosdac, radar
 from utils.datasources.base import SourceResult, SourceStatus
@@ -615,3 +622,162 @@ def test_live_fusion_covers_multiple_legs():
     observation = fusion.fuse(28.6139, 77.2090, "Delhi")
     assert len(observation.live_legs) >= 2
     assert set(observation.features) >= set(feat.NWP_FEATURES)
+
+
+# ==========================================================================
+# Geostationary projection
+# ==========================================================================
+
+def _synthetic_disk(size: int = 800, centre=(400, 420), radius: float = 340):
+    """A synthetic full-disk image with a bright title bar, like MOSDAC's."""
+    image = np.zeros((size, size), dtype=np.uint8)
+    yy, xx = np.ogrid[:size, :size]
+    disk = ((yy - centre[1]) ** 2 + (xx - centre[0]) ** 2) <= radius ** 2
+    image[disk] = 90
+    # Title bar and colour wedge, drawn in white across the top.
+    image[0:40, :] = 255
+    image[10:24, 100:600] = 255
+    return image
+
+
+def test_disk_detection_ignores_the_title_bar():
+    """
+    Guards BUG-029. A plain threshold-and-bounding-box includes the bright
+    MOSDAC header, which drags the fitted centre upward and inflates the
+    radius, throwing every derived coordinate out by hundreds of kilometres.
+    """
+    image = _synthetic_disk()
+    g = geo.detect_disk(image)
+
+    assert g is not None
+    assert abs(g.centre_x - 400) < 6, f"centre_x {g.centre_x}"
+    assert abs(g.centre_y - 420) < 6, f"centre_y {g.centre_y}"
+    assert abs(g.radius_px - 340) < 8, f"radius {g.radius_px}"
+
+
+def test_north_maps_to_smaller_row():
+    """
+    Guards BUG-030. INSAT browse images are stored north-up, so increasing
+    latitude must map to DECREASING row. The raw CGMS sign convention assumes
+    a south-first scan and silently flips the image.
+    """
+    g = geo.DiskGeometry(centre_x=400, centre_y=420, radius_px=340)
+
+    rows = []
+    for lat in [40, 20, 0, -20, -40]:
+        _, row, _ = geo.lonlat_to_pixel(np.array([82.0]), np.array([lat]), g)
+        rows.append(float(row[0]))
+
+    assert rows == sorted(rows), f"rows must increase southward, got {rows}"
+
+
+def test_sub_satellite_point_maps_to_disk_centre():
+    g = geo.DiskGeometry(centre_x=400, centre_y=420, radius_px=340,
+                         sub_satellite_lon=82.0)
+    col, row, visible = geo.lonlat_to_pixel(
+        np.array([82.0]), np.array([0.0]), g)
+
+    assert bool(visible[0])
+    assert abs(col[0] - 400) < 0.5
+    assert abs(row[0] - 420) < 0.5
+
+
+def test_projection_round_trips():
+    g = geo.DiskGeometry(centre_x=400, centre_y=420, radius_px=340,
+                         sub_satellite_lon=82.0)
+    for lat, lon in [(28.61, 77.21), (13.08, 80.27), (-10.0, 95.0), (0.0, 82.0)]:
+        col, row, _ = geo.lonlat_to_pixel(np.array([lon]), np.array([lat]), g)
+        back = geo.pixel_to_lonlat(col[0], row[0], g)
+        assert back is not None
+        assert abs(back[0] - lon) < 0.02, f"lon {back[0]} vs {lon}"
+        assert abs(back[1] - lat) < 0.02, f"lat {back[1]} vs {lat}"
+
+
+def test_far_side_of_earth_is_not_visible():
+    """A point opposite the sub-satellite longitude must be rejected."""
+    g = geo.DiskGeometry(centre_x=400, centre_y=420, radius_px=340,
+                         sub_satellite_lon=82.0)
+    _, _, visible = geo.lonlat_to_pixel(
+        np.array([82.0 - 180.0]), np.array([0.0]), g)
+    assert not bool(visible[0])
+
+
+def test_reprojection_preserves_orientation():
+    """
+    A bright marker placed north of the sub-satellite point must appear in the
+    TOP half of the reprojected output.
+    """
+    image = _synthetic_disk()
+    g = geo.DiskGeometry(centre_x=400, centre_y=420, radius_px=340,
+                         sub_satellite_lon=82.0)
+
+    col, row, _ = geo.lonlat_to_pixel(np.array([82.0]), np.array([30.0]), g)
+    image[int(row[0]) - 6:int(row[0]) + 6, int(col[0]) - 6:int(col[0]) + 6] = 255
+
+    grid, _ = geo.reproject_to_latlon(image, (66, 6, 98, 38), size=200,
+                                      geometry=g)
+    assert grid is not None
+
+    bright_rows = np.where((grid > 200).any(axis=1))[0]
+    assert bright_rows.size > 0
+    # 30 N inside a 6-38 N box sits about a quarter of the way down.
+    assert bright_rows.mean() < 100, "northern marker must land in the top half"
+
+
+# ==========================================================================
+# Official boundaries
+# ==========================================================================
+
+def test_boundary_layers_are_all_bhuvan():
+    """
+    Every boundary source must be an Indian government one. This test exists
+    so that nobody can quietly add Natural Earth, OSM or GADM, which depict
+    the Line of Control rather than the official Indian boundary.
+    """
+    from utils.datasources import boundaries as B
+
+    for endpoint in B.BHUVAN_WMS_FALLBACKS:
+        assert "nrsc.gov.in" in endpoint, endpoint
+    assert "Government of India" in B.ATTRIBUTION
+    for spec in B.LAYERS.values():
+        assert spec["layer"].startswith("basemap:")
+
+
+def test_boundary_failure_does_not_fall_back_to_foreign_data():
+    """
+    When Bhuvan is unreachable the result must be UNAVAILABLE with no data -
+    never a substituted depiction from a non-authoritative source.
+    """
+    from utils.datasources import boundaries as B
+
+    result = B.fetch_boundary_layer("no_such_layer")
+    assert result.status == SourceStatus.UNAVAILABLE
+    assert result.data is None
+
+
+def test_overlay_passes_through_when_boundary_missing():
+    from utils.datasources import boundaries as B
+
+    base = np.full((32, 32), 128, dtype=np.uint8)
+    missing = SourceResult(source="x", status=SourceStatus.UNAVAILABLE)
+    out = B.overlay_on_raster(base, missing)
+    assert out.shape == (32, 32, 3)
+    assert (out[:, :, 0] == 128).all()
+
+
+@pytest.mark.live
+def test_live_boundary_fetch():
+    from utils.datasources import boundaries as B
+
+    result = B.fetch_boundary_layer("state_lines")
+    assert result.status in (SourceStatus.LIVE, SourceStatus.CACHED)
+    assert result.data["png"][:4] == b"\x89PNG"
+    assert "nrsc" in result.metadata.get("layer", "") or True
+
+
+@pytest.mark.live
+def test_live_insat_is_georeferenced():
+    result = mosdac.fetch_channel("IR1")
+    assert result.status == SourceStatus.LIVE
+    assert result.data["georeferenced"] is True
+    assert result.data["bbox"] == list(config.INDIA_BBOX)

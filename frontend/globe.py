@@ -69,6 +69,7 @@ def _radar_payload(network_status: Optional[List[Dict]] = None) -> List[Dict]:
 def build_globe_html(selected_city: Optional[Dict] = None,
                      network_status: Optional[List[Dict]] = None,
                      source_status: Optional[Dict[str, str]] = None,
+                     boundary: Optional[Dict] = None,
                      height: int = 660) -> str:
     """
     Generate the self-contained globe component.
@@ -77,6 +78,11 @@ def build_globe_html(selected_city: Optional[Dict] = None,
         selected_city: {'name', 'lat', 'lon', 'risk', 'probability'}
         network_status: rows from utils.datasources.radar.network_status
         source_status: {'satellite': 'live', 'radar': 'live', ...}
+        boundary: {'data_uri', 'bbox', 'citation'} from
+            utils.datasources.boundaries - the OFFICIAL Indian administrative
+            boundary from ISRO Bhuvan. Omitted when Bhuvan is unreachable, in
+            which case no boundary is drawn at all; this project never
+            substitutes a non-authoritative depiction.
     """
     payload = {
         "satellites": _satellite_payload(),
@@ -87,6 +93,7 @@ def build_globe_html(selected_city: Optional[Dict] = None,
         ],
         "selected": selected_city or {},
         "sources": source_status or {},
+        "boundary": boundary or {},
         "height": height,
     }
 
@@ -112,6 +119,7 @@ _TEMPLATE = r"""
     <div class="gl-row"><span class="dot dot-off"></span>No public feed</div>
     <div class="gl-row"><span class="dot dot-sat"></span>INSAT satellite</div>
     <div class="gl-row"><span class="dot dot-target"></span>Forecast point</div>
+    <div class="gl-row" style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(120,180,255,.16);font-size:9.5px;opacity:.72">Boundaries: ISRO Bhuvan / NRSC<br>Survey of India depiction</div>
   </div>
 
   <div class="globe-overlay globe-hint">drag to rotate &middot; scroll to zoom<br><span style="opacity:.72">orbit radius compressed for legibility</span></div>
@@ -337,14 +345,56 @@ _TEMPLATE = r"""
     ));
   })();
 
+  // ------------------------------------------------- official India boundary
+  // Draped as a texture on a lat/lon patch of the sphere. The image comes from
+  // ISRO Bhuvan (NRSC, Department of Space) and carries the Survey of India
+  // depiction. If it is absent, NO boundary is drawn - this project never
+  // substitutes Natural Earth, OSM or GADM, which show the Line of Control
+  // rather than the official Indian boundary.
+  (function indiaBoundary() {
+    if (!DATA.boundary || !DATA.boundary.data_uri) return;
+
+    var bb = DATA.boundary.bbox || [66, 6, 98, 38];
+    var lonMin = bb[0], latMin = bb[1], lonMax = bb[2], latMax = bb[3];
+
+    var toRad = Math.PI / 180;
+    // three.js SphereGeometry: phi is longitude, theta is polar angle from +Y.
+    // This matches the toVec() convention used everywhere else in this file.
+    var phiStart = (lonMin + 180) * toRad;
+    var phiLength = (lonMax - lonMin) * toRad;
+    var thetaStart = (90 - latMax) * toRad;
+    var thetaLength = (latMax - latMin) * toRad;
+
+    var loader = new THREE.TextureLoader();
+    loader.load(DATA.boundary.data_uri, function (texture) {
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.generateMipmaps = false;
+
+      var patch = new THREE.Mesh(
+        new THREE.SphereGeometry(
+          R * 1.007, 96, 96, phiStart, phiLength, thetaStart, thetaLength
+        ),
+        new THREE.MeshBasicMaterial({
+          map: texture,
+          transparent: true,
+          opacity: 0.92,
+          depthWrite: false,
+          side: THREE.FrontSide
+        })
+      );
+      scene.add(patch);
+    });
+  })();
+
   // Shade the Indian analysis domain so the region of interest reads instantly.
   (function domain() {
     var b = { w: 66, s: 6, e: 98, n: 38 };
     var pts = [], i;
-    for (i = 0; i <= 40; i++) pts.push(toVec(b.s, b.w + i * (b.e - b.w) / 40, R * 1.006));
-    for (i = 0; i <= 40; i++) pts.push(toVec(b.s + i * (b.n - b.s) / 40, b.e, R * 1.006));
-    for (i = 0; i <= 40; i++) pts.push(toVec(b.n, b.e - i * (b.e - b.w) / 40, R * 1.006));
-    for (i = 0; i <= 40; i++) pts.push(toVec(b.n - i * (b.n - b.s) / 40, b.w, R * 1.006));
+    for (i = 0; i <= 40; i++) pts.push(toVec(b.s, b.w + i * (b.e - b.w) / 40, R * 1.010));
+    for (i = 0; i <= 40; i++) pts.push(toVec(b.s + i * (b.n - b.s) / 40, b.e, R * 1.010));
+    for (i = 0; i <= 40; i++) pts.push(toVec(b.n, b.e - i * (b.e - b.w) / 40, R * 1.010));
+    for (i = 0; i <= 40; i++) pts.push(toVec(b.n - i * (b.n - b.s) / 40, b.w, R * 1.010));
     scene.add(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(pts),
       new THREE.LineBasicMaterial({ color: 0x7ce0ff, transparent: true, opacity: 0.42 })
@@ -363,7 +413,7 @@ _TEMPLATE = r"""
   // ------------------------------------------------------------------ radars
   var pulses = [];
   DATA.radars.forEach(function (r) {
-    var pos = toVec(r.lat, r.lon, R * 1.012);
+    var pos = toVec(r.lat, r.lon, R * 1.016);
     var colour = r.contributing ? 0xffd23f : (r.live ? 0x35e08a : 0x4a5a78);
     var active = r.live || r.contributing;
 
@@ -400,10 +450,10 @@ _TEMPLATE = r"""
                  .add(bitangent.clone().multiplyScalar(Math.sin(a)));
       ring.push(centre.clone().multiplyScalar(Math.cos(angular))
                 .add(dir.multiplyScalar(Math.sin(angular)))
-                .multiplyScalar(R * 1.008));
+                .multiplyScalar(R * 1.012));
     }
     var ringMat = new THREE.LineBasicMaterial({
-      color: colour, transparent: true, opacity: active ? 0.5 : 0.13
+      color: colour, transparent: true, opacity: active ? 0.55 : 0.06
     });
     var ringLine = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(ring), ringMat
@@ -414,7 +464,7 @@ _TEMPLATE = r"""
 
   // ------------------------------------------------------------------ cities
   DATA.cities.forEach(function (c) {
-    var pos = toVec(c.lat, c.lon, R * 1.008);
+    var pos = toVec(c.lat, c.lon, R * 1.014);
     var dot = new THREE.Mesh(
       new THREE.SphereGeometry(0.62, 8, 8),
       new THREE.MeshBasicMaterial({

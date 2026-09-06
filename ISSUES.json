@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-06",
+  "generated": "2026-09-07",
   "description": "Bug and issue register for the SIH 2026 nowcasting system. Rendered live in the dashboard's Diagnostics panel.",
   "issues": [
     {
@@ -297,13 +297,57 @@
     },
     {
       "id": "ISSUE-025",
-      "severity": "low",
-      "title": "Full-disk to India crop is approximate",
+      "severity": "medium",
+      "title": "Full-disk to India crop was not georeferenced",
       "area": "Science",
-      "status": "open",
+      "status": "fixed",
       "detail": "The Indian region is cut from the full disk using fixed pixel fractions rather than the L1B geolocation grid, so features are not precisely georeferenced to the selected city.",
       "impact": "Satellite features describe the broad Indian region rather than the specific point.",
-      "next_step": "Use the latitude/longitude arrays in the L1B NetCDF to extract a true bounding box around the point of interest."
+      "fix": "Replaced the fixed pixel fractions with a proper geostationary (GEOS) reprojection onto EPSG:4326. Validated against the graticule burned into the source product: the 10, 20 and 30 degree parallels land within 0.03-0.07 degrees. Satellite features are now extracted for a real bounding box and the ISRO Bhuvan boundary registers with the coastline."
+    },
+    {
+      "id": "BUG-029",
+      "severity": "critical",
+      "title": "Earth-disk detection corrupted by the MOSDAC title bar",
+      "area": "Science",
+      "status": "fixed",
+      "found": "utils/geo.py:detect_disk (introduced during this rebuild)",
+      "detail": "MOSDAC browse products carry a title bar, a greyscale colour wedge and ISRO/MOSDAC logos across the top, all drawn in bright white. Detecting the Earth disk by thresholding and taking a bounding box included that furniture, pulling the fitted centre up by ~140 px and inflating the radius by ~60 px.",
+      "impact": "Every georeferenced coordinate was wrong by hundreds of kilometres, so boundary overlays and per-city feature extraction were both misregistered.",
+      "fix": "The disk is isolated as the largest connected component, then refined with a least-squares circle fit to the limb. Latitude error against the graticule burned into the source fell from 0.17-0.45 degrees to 0.03-0.07 degrees, which is sub-pixel at INSAT's 4 km resolution."
+    },
+    {
+      "id": "BUG-030",
+      "severity": "critical",
+      "title": "Geostationary projection flipped the image vertically",
+      "area": "Science",
+      "status": "fixed",
+      "found": "utils/geo.py:lonlat_to_pixel (introduced during this rebuild)",
+      "detail": "The scan angle was computed as arcsin(-r3/rn), following the raw CGMS listing, which assumes a south-first scan. INSAT browse images are stored north-up, so northern latitudes mapped to LARGER row indices and the reprojection sampled the southern hemisphere.",
+      "impact": "The 'Indian region' crop actually returned southern Indian Ocean. It went unnoticed at first because the cyan boundary overlay drawn on top still looked like India; the giveaway was the source graticule labels reading -30 and -50.",
+      "fix": "Sign corrected in both the forward and inverse projection, with a regression test asserting that row indices increase monotonically southward."
+    },
+    {
+      "id": "BUG-031",
+      "severity": "medium",
+      "title": "Satellite misidentified as INSAT-3D",
+      "area": "Docs",
+      "status": "fixed",
+      "found": "utils/datasources/mosdac.py:CHANNELS",
+      "detail": "The 3SIMG_ product prefix was labelled INSAT-3D throughout. The header printed inside the image itself reads 'INSAT-3DS IMG, Thermal Infrared1 Count @ 10.78 um', so the feed is INSAT-3DS.",
+      "impact": "Every UI label, citation and report named the wrong spacecraft - the kind of detail a domain panel notices immediately.",
+      "fix": "Channels relabelled INSAT-3DS, and each now carries its sub-satellite longitude (82 E for 3DS, 74 E for 3DR) so the projection is correct per satellite."
+    },
+    {
+      "id": "BUG-032",
+      "severity": "high",
+      "title": "Frame buffer mixed georeferenced and un-georeferenced frames",
+      "area": "Data",
+      "status": "fixed",
+      "found": "utils/datasources/mosdac.py frame buffer",
+      "detail": "Switching the crop to a real geostationary reprojection changed the pixel geometry, but frames cached under the old fixed-fraction crop remained in the rolling buffer.",
+      "impact": "Optical flow would have compared two different projections and reported large spurious cloud motion.",
+      "fix": "Buffer cleared as part of the change. Frames are keyed by content hash, so the buffer refills cleanly from the next scan."
     }
   ]
 }

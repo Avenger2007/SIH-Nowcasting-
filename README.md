@@ -10,7 +10,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-No API keys are required. Live INSAT-3D imagery, IMD Doppler radar and NWP
+No API keys are required. Live INSAT-3DS imagery, IMD Doppler radar and NWP
 convective parameters all work out of the box.
 
 ---
@@ -19,7 +19,7 @@ convective parameters all work out of the box.
 
 | Leg (from the problem statement) | Source | Credentials | Status |
 |---|---|---|---|
-| **Satellite** | INSAT-3D / 3DR via the public MOSDAC gallery — IR1, IR2, WV, VIS, MIR | none | **live** |
+| **Satellite** | INSAT-3DS / 3DR via the public MOSDAC gallery — IR1, IR2, WV, VIS, MIR | none | **live** |
 | **Multiple radars** | IMD Doppler Weather Radar composites from `mausam.imd.gov.in` | none | **live** (see caveat) |
 | **Model data** | CAPE, CIN, Lifted Index, shear, precipitable water via Open-Meteo (GFS/ECMWF) | none | **live** |
 | **Lightning** | Local archive adapter, Blitzortung adapter | institutional | **adapter ready, no feed** |
@@ -50,7 +50,7 @@ labels. `scripts/train_real.py` is written and waiting for them.
 
 We think a working pipeline with an honest label about its limits is a far
 stronger submission than a claimed 99% accuracy that collapses under the first
-question. The engineering register in the dashboard lists all 28 tracked issues,
+question. The engineering register in the dashboard lists all 32 tracked issues,
 open ones included.
 
 ---
@@ -58,7 +58,7 @@ open ones included.
 ## Architecture
 
 ```
-INSAT-3D/3DR          IMD DWR              Lightning network        NWP (GFS)
+INSAT-3DS/3DR         IMD DWR              Lightning network        NWP (GFS)
 public gallery        caz/ppz/ppv          IITM / ENTLN / Blitz     Open-Meteo
      │                    │                        │                    │
      └────────────────────┴────────────────────────┴────────────────────┘
@@ -132,6 +132,7 @@ ISSUES.json                Engineering register, rendered live in the UI
 
 utils/
   calibration.py           8-bit counts ↔ Kelvin; physical thresholds
+  geo.py                   Geostationary projection; full disk → EPSG:4326
   features.py              88 named features in 5 source groups
   optical_flow.py          Farneback motion, advection, cell tracking
   predictor.py             FeatureContract, ModelCard, XGBoost
@@ -140,12 +141,13 @@ utils/
   llm_alert.py             Template alerts; optional LLM rephrasing
   datasources/
     base.py                SourceResult, SourceStatus, cache, retry
-    mosdac.py              INSAT-3D/3DR + rolling frame buffer
+    mosdac.py              INSAT-3DS/3DR + rolling frame buffer
     radar.py               IMD DWR, legend-driven dBZ decoding
     lightning.py           Strike features, labels, archive adapter
     nwp.py                 Convective parameters
     surface.py             Surface observations
     fusion.py              Concurrent multi-source fusion
+    boundaries.py          Official boundaries from ISRO Bhuvan (NRSC)
 
 frontend/
   globe.py                 three.js network globe
@@ -156,7 +158,7 @@ scripts/
   collect_frames.py        Build the INSAT frame buffer (for motion)
   train_real.py            Train on observed lightning labels
 
-tests/test_pipeline.py     47 tests; regression tests name the bug they guard
+tests/test_pipeline.py     56 tests; regression tests name the bug they guard
 ```
 
 ---
@@ -184,6 +186,59 @@ collector for an hour beforehand and motion will be live.
 
 ---
 
+## Official boundaries and georeferencing
+
+Two things had to be right before any boundary could be drawn.
+
+### The boundary source is ISRO Bhuvan, deliberately
+
+India's official external boundary differs from the de-facto lines shown by
+international datasets. **Natural Earth, OpenStreetMap, GADM and most Western
+basemaps depict the Line of Control**, not the boundary the Government of India
+recognises. Using one of those in a submission to the Ministry of Earth
+Sciences would be a serious unforced error.
+
+Every boundary in this project therefore comes from **ISRO Bhuvan**, the
+national geoportal run by the National Remote Sensing Centre, Department of
+Space — which carries the Survey of India depiction.
+
+```
+https://bhuvan-vec1.nrsc.gov.in/bhuvan/wms
+  basemap:STATE_BDY_UPD    state boundaries, updated
+  basemap:india_state_ql   states, filled (globe texture)
+  basemap:INDIA_DIST       district boundaries
+```
+
+Verified current: Ladakh appears as a Union Territory distinct from Jammu &
+Kashmir, reflecting the 2019 reorganisation.
+
+If Bhuvan is unreachable, **no boundary is drawn at all**. The code has no
+fallback to a foreign dataset, and `test_boundary_failure_does_not_fall_back_to_foreign_data`
+enforces that.
+
+### Imagery is properly georeferenced
+
+A boundary is only meaningful over correctly located pixels. The earlier build
+cut India out of the INSAT full disk using fixed pixel fractions, which is not
+georeferenced at all.
+
+`utils/geo.py` now implements the standard geostationary (GEOS) projection, so
+the full disk is resampled onto a real EPSG:4326 grid. Two bugs had to be fixed
+to get there, both caught by validation rather than luck:
+
+- the Earth-disk detector was including MOSDAC's bright title bar, throwing the
+  fitted centre out by ~140 px (`BUG-029`);
+- the scan-angle sign followed the raw CGMS listing, which assumes a
+  south-first scan and silently flipped the image, so the "India" crop was
+  actually returning southern Indian Ocean (`BUG-030`).
+
+**Validation:** after reprojection, the graticule burned into the source
+product lands within **0.03–0.07°** of the true 10°, 20° and 30° parallels —
+sub-pixel at INSAT's 4 km resolution. That check does not depend on the
+boundary overlay, so it cannot be fooled by a pretty picture.
+
+---
+
 ## Known limitations
 
 Listed in full in the dashboard's Engineering register. The ones that matter:
@@ -195,8 +250,6 @@ Listed in full in the dashboard's Engineering register. The ones that matter:
   serves rendered JPEGs; Kelvin is inferred from an assumed display stretch, and
   the scene saturates at the cold end. A free MOSDAC account fixes this.
   `ISSUE-023`.
-- **The India crop is approximate**, using fixed pixel fractions rather than the
-  L1B geolocation grid. `ISSUE-025`.
 
 ---
 

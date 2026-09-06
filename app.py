@@ -33,6 +33,7 @@ from utils import consistency
 from utils import features as feat
 from utils import llm_alert, metrics as vmetrics, optical_flow
 from utils.calibration import kelvin_to_counts
+from utils.datasources import boundaries as boundary_src
 from utils.datasources import fusion, radar as radar_src
 from utils.predictor import FeatureContractError, ThunderstormPredictor
 
@@ -78,6 +79,20 @@ def cached_network_status(limit: int = 12):
         return radar_src.network_status(limit=limit)
     except Exception:
         return []
+
+
+@st.cache_resource(show_spinner=False)
+def cached_boundary(kind: str = "state_filled"):
+    """
+    Official Indian administrative boundary from ISRO Bhuvan.
+
+    Cached as a resource because the payload is a PNG of some hundreds of
+    kilobytes and boundaries change on the order of years.
+    """
+    try:
+        return boundary_src.fetch_boundary_layer(kind)
+    except Exception:
+        return None
 
 
 @st.cache_data(show_spinner=False)
@@ -391,11 +406,28 @@ with tab_now:
 
         # Imagery ---------------------------------------------------------
         st.markdown("#### Satellite analysis")
+
+        show_boundaries = st.checkbox(
+            "Overlay official state boundaries (ISRO Bhuvan)",
+            value=True,
+            help="Survey of India depiction, served by ISRO Bhuvan / NRSC. "
+                 "Lets you read immediately which states a system covers.",
+        )
+
+        lines = cached_boundary("state_lines") if show_boundaries else None
+
+        def with_boundaries(frame):
+            """Composite the official boundary over an IR frame."""
+            image = kelvin_to_counts(frame)
+            if lines is not None and lines.ok:
+                return boundary_src.overlay_on_raster(image, lines, opacity=0.8)
+            return image
+
         img_cols = st.columns(3)
 
         with img_cols[0]:
             st.image(
-                kelvin_to_counts(result["frames"][-1]),
+                with_boundaries(result["frames"][-1]),
                 caption="INSAT-3D TIR-1 brightness temperature (latest)",
                 use_container_width=True,
             )
@@ -421,7 +453,7 @@ with tab_now:
 
         with img_cols[2]:
             st.image(
-                kelvin_to_counts(result["nowcasts"][2]),
+                with_boundaries(result["nowcasts"][2]),
                 caption="Advected nowcast, +3 h (Lagrangian persistence)",
                 use_container_width=True,
             )
@@ -498,10 +530,20 @@ with tab_globe:
                         if prediction else 0.0),
     }
 
+    boundary_result = cached_boundary("state_filled")
+    boundary_payload = None
+    if boundary_result is not None and boundary_result.ok:
+        boundary_payload = {
+            "data_uri": boundary_result.data["data_uri"],
+            "bbox": list(boundary_result.data["bbox"]),
+            "citation": boundary_result.citation,
+        }
+
     components.html(
         globe_view.build_globe_html(
             selected_city=selected,
             network_status=network,
+            boundary=boundary_payload,
             source_status={
                 leg: r.status.value
                 for leg, r in (observation.sources.items() if observation else [])
@@ -511,6 +553,19 @@ with tab_globe:
         height=690,
         scrolling=False,
     )
+
+    if boundary_result is not None and boundary_result.ok:
+        st.caption(
+            f"Boundaries: {boundary_result.source} "
+            f"({boundary_result.status.value}). {boundary_src.ATTRIBUTION}"
+        )
+    else:
+        st.warning(
+            "ISRO Bhuvan could not be reached, so no administrative boundary "
+            "is drawn. This is deliberate: the project does not substitute "
+            "Natural Earth, OpenStreetMap or GADM, which depict the Line of "
+            "Control rather than the official Indian boundary."
+        )
 
     st.markdown("#### Fleet and network inventory")
     inv_left, inv_right = st.columns(2)

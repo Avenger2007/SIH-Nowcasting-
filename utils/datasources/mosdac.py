@@ -61,19 +61,29 @@ GALLERY_HEADERS = {
     "Referer": "https://www.mosdac.gov.in/gallery/",
 }
 
-CHANNELS: Dict[str, Dict[str, str]] = {
+# The 3SIMG_ prefix is INSAT-3DS, not INSAT-3D: the product header inside the
+# image reads "INSAT-3DS IMG, Thermal Infrared1". 3RIMG_ is INSAT-3DR.
+# sub_lon is the sub-satellite longitude, which the geostationary projection
+# needs to georeference the disk correctly.
+CHANNELS: Dict[str, Dict] = {
     "IR1": {"prod": "3SIMG_*_L1B_STD_IR1_V*.jpg",
-            "label": "INSAT-3D TIR-1 (10.8 um)", "satellite": "INSAT-3D"},
+            "label": "INSAT-3DS TIR-1 (10.8 um)", "satellite": "INSAT-3DS",
+            "sub_lon": 82.0},
     "IR2": {"prod": "3SIMG_*_L1B_STD_IR2_V*.jpg",
-            "label": "INSAT-3D TIR-2 (12.0 um)", "satellite": "INSAT-3D"},
+            "label": "INSAT-3DS TIR-2 (12.0 um)", "satellite": "INSAT-3DS",
+            "sub_lon": 82.0},
     "WV": {"prod": "3SIMG_*_L1B_STD_WV_V*.jpg",
-           "label": "INSAT-3D Water Vapour (6.8 um)", "satellite": "INSAT-3D"},
+           "label": "INSAT-3DS Water Vapour (6.8 um)", "satellite": "INSAT-3DS",
+           "sub_lon": 82.0},
     "VIS": {"prod": "3SIMG_*_L1B_STD_VIS_V*.jpg",
-            "label": "INSAT-3D Visible (0.65 um)", "satellite": "INSAT-3D"},
+            "label": "INSAT-3DS Visible (0.65 um)", "satellite": "INSAT-3DS",
+            "sub_lon": 82.0},
     "MIR": {"prod": "3SIMG_*_L1B_STD_MIR_V*.jpg",
-            "label": "INSAT-3D Mid-IR (3.9 um)", "satellite": "INSAT-3D"},
+            "label": "INSAT-3DS Mid-IR (3.9 um)", "satellite": "INSAT-3DS",
+            "sub_lon": 82.0},
     "IR1_3DR": {"prod": "3RIMG_*_L1B_STD_IR1_V*.jpg",
-                "label": "INSAT-3DR TIR-1 (10.8 um)", "satellite": "INSAT-3DR"},
+                "label": "INSAT-3DR TIR-1 (10.8 um)", "satellite": "INSAT-3DR",
+                "sub_lon": 74.0},
 }
 
 # Rolling frame buffer. The gallery serves only the newest image per product,
@@ -222,17 +232,49 @@ def saturated_fraction(counts: np.ndarray) -> float:
 
 def _crop_to_india(array: np.ndarray) -> np.ndarray:
     """
-    Crop the full disk to the Indian region.
+    Fallback crop by fixed pixel fractions.
 
-    INSAT-3D sits at 82 E, so India occupies the upper-central portion of the
-    disk. These fractions are approximate - a production system would use the
-    geolocation grid from the L1B product - and the crop is generous enough to
-    contain the whole subcontinent plus surrounding seas.
+    Only used when the Earth disk cannot be located. It is NOT georeferenced:
+    features cut this way cannot be tied to a location and no boundary overlay
+    will register against them. The real path is :func:`_georeference`.
     """
     height, width = array.shape[:2]
     top, bottom = int(height * 0.16), int(height * 0.56)
     left, right = int(width * 0.28), int(width * 0.68)
     return array[top:bottom, left:right]
+
+
+def _georeference(full_disk: np.ndarray,
+                  sub_lon: float,
+                  size: int) -> Tuple[Optional[np.ndarray], Optional[Dict]]:
+    """
+    Resample the full disk onto the Indian lat/lon box.
+
+    This is what makes every downstream number mean something: features are
+    extracted for an actual bounding box, and the ISRO Bhuvan administrative
+    boundary lines up with the coastline in the imagery.
+
+    Validated against the graticule burned into the source product: after
+    reprojection the 10, 20 and 30 degree parallels land within 0.03-0.07
+    degrees of their true positions, which is sub-pixel at INSAT's 4 km
+    resolution.
+    """
+    from utils import geo
+
+    grid, geometry = geo.reproject_to_latlon(
+        full_disk, config.INDIA_BBOX, size=size, sub_satellite_lon=sub_lon
+    )
+    if grid is None or geometry is None:
+        return None, None
+
+    return grid, {
+        "bbox": list(config.INDIA_BBOX),
+        "disk_centre_px": [round(geometry.centre_x, 1),
+                           round(geometry.centre_y, 1)],
+        "disk_radius_px": round(geometry.radius_px, 1),
+        "sub_satellite_lon": geometry.sub_satellite_lon,
+        "projection": "geostationary (GEOS), resampled to EPSG:4326",
+    }
 
 
 @timed
@@ -276,10 +318,20 @@ def fetch_channel(channel: str = "IR1",
         image = Image.open(io.BytesIO(response.content)).convert("L")
         full = np.array(image)
 
-        array = _crop_to_india(full) if crop else full
-        resized = np.array(
-            Image.fromarray(array).resize((size, size), Image.BILINEAR)
-        )
+        geo_meta = None
+        if crop:
+            resized, geo_meta = _georeference(full, spec["sub_lon"], size)
+            if resized is None:
+                # Disk not found: fall back to the un-georeferenced crop and
+                # say so, rather than silently returning unlocatable pixels.
+                resized = np.array(
+                    Image.fromarray(_crop_to_india(full))
+                    .resize((size, size), Image.BILINEAR)
+                )
+        else:
+            resized = np.array(
+                Image.fromarray(full).resize((size, size), Image.BILINEAR)
+            )
 
         # Strip the burned-in coastline/graticule before any temperature is
         # derived, otherwise map furniture decodes as overshooting tops.
@@ -300,11 +352,16 @@ def fetch_channel(channel: str = "IR1",
                 "frame_hash": entry["hash"],
                 "overlay_fraction": overlay_fraction,
                 "saturated_fraction": clipped,
+                "georeferenced": geo_meta is not None,
+                "bbox": (geo_meta or {}).get("bbox"),
             },
             valid_time=entry["fetched_at"],
             message=(
                 f"{spec['satellite']} {channel}: "
-                f"{full.shape[1]}x{full.shape[0]} full disk, coldest top "
+                f"{full.shape[1]}x{full.shape[0]} full disk"
+                + (", georeferenced to 66-98E / 6-38N"
+                   if geo_meta else ", NOT georeferenced")
+                + ", coldest top "
                 + (f"<= {kelvin.min():.0f} K (display saturated over "
                    f"{clipped:.1%} of the scene)"
                    if clipped > 0.002 else f"{kelvin.min():.0f} K")
@@ -316,6 +373,8 @@ def fetch_channel(channel: str = "IR1",
                 "calibrated": False,
                 "overlay_removed_fraction": round(overlay_fraction, 5),
                 "saturated_fraction": round(clipped, 5),
+                "georeferencing": geo_meta or "FAILED - disk not located; "
+                                              "pixels are not locatable",
                 "note": "Brightness temperature approximated from the 8-bit "
                         "display stretch; L1B NetCDF gives true Kelvin. Where "
                         "the scene is saturated the minimum is a floor, not a "
