@@ -1,0 +1,45 @@
+# .gitignore
+# API keys and secrets
+.env
+config_mosdac.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv/
+
+# Streamlit
+.streamlit/
+
+# Model files (large binaries)
+models/*.pkl
+models/*.joblib
+
+# Data (don't commit large datasets)
+data/sample_images/*.png
+data/sample_images/*.jpg
+!data/sample_images/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Build
+build/
+dist/
+*.egg-info/
