@@ -1,5 +1,7 @@
-# SIH 2026 — Thunderstorm & Lightning Nowcasting (0-6 hr)
+# 📡 SIH 2026 — Thunderstorm & Lightning Nowcasting (0-6 hr)
 ## PS Number: SIH26072 | Ministry of Earth Sciences (MoES)
+
+**GitHub Repo:** https://github.com/Avenger2007/SIH-Nowcasting-.git
 
 **Team:** [Your Name(s)]
 **College:** [Your College]

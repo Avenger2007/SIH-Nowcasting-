@@ -42,7 +42,7 @@ def generate_alert(prediction: Dict,
         prompt = build_alert_prompt(prediction, location, weather_data)
         
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="groq/compound",  # Updated: works with this API key
             messages=[
                 {
                     "role": "system",

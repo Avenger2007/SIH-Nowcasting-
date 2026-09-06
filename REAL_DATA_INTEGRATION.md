@@ -1,6 +1,8 @@
 # 📡 Real Data Integration Guide
 ## Thunderstorm & Lightning Nowcasting — SIH26072
 
+> **GitHub Repo:** https://github.com/Avenger2007/SIH-Nowcasting-.git
+
 This document describes how to integrate **real data sources** into the Thunderstorm Nowcasting system. All sources listed here are **free** and publicly accessible.
 
 ---
