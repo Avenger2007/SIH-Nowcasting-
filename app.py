@@ -48,6 +48,46 @@ st.set_page_config(
 st.markdown(theme.global_css(), unsafe_allow_html=True)
 
 
+def immersive_css() -> str:
+    """
+    Hide the sidebar and remove page chrome for the full-screen landing.
+
+    Streamlit has its own collapse control, but it leaves the rail, the
+    padding and the header in place - enough furniture that the experience
+    stops feeling full-screen. This removes them, and is reverted the moment
+    immersive mode is switched off.
+    """
+    return """
+<style>
+  section[data-testid="stSidebar"] { display: none !important; }
+  div[data-testid="collapsedControl"] { display: none !important; }
+  header[data-testid="stHeader"] { background: transparent; height: 0; }
+  .block-container {
+    padding: 0 !important; max-width: 100% !important;
+  }
+  .stApp { background: #03060D !important; }
+  .stTabs [data-baseweb="tab-list"] {
+    position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+    z-index: 1000; border-bottom: none;
+    background: rgba(8, 16, 32, .62);
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(140, 190, 250, .18);
+    border-radius: 999px; padding: 3px 5px; gap: 2px;
+  }
+  .stTabs [data-baseweb="tab"] {
+    color: rgba(190, 214, 240, .68) !important;
+    border-bottom: none !important; border-radius: 999px;
+    padding: 7px 15px; font-size: .68rem;
+  }
+  .stTabs [aria-selected="true"] {
+    background: rgba(120, 175, 255, .17) !important;
+    color: #EAF2FD !important; border-bottom: none !important;
+  }
+  div[data-testid="stVerticalBlock"] > div:has(> iframe) { gap: 0; }
+</style>
+"""
+
+
 # ==========================================================================
 # Cached resources
 # ==========================================================================
@@ -151,6 +191,13 @@ def run_pipeline(city, allow_simulation: bool):
 # Sidebar
 # ==========================================================================
 
+# Applied before the toggle below is created: Streamlit raises
+# StreamlitWidgetAlreadyInstantiatedError on any write to a widget-bound key
+# after that widget exists, so leaving immersive mode is recorded as an intent
+# and consumed here on the following run.
+if st.session_state.pop("_leave_immersive", False):
+    st.session_state["immersive"] = False
+
 with st.sidebar:
     st.markdown("### Configuration")
 
@@ -180,6 +227,14 @@ with st.sidebar:
         help="When off, the satellite leg reports unavailable instead of "
              "substituting a synthetic field. Turn it off to prove that "
              "nothing on screen is fabricated.",
+    )
+
+    st.toggle(
+        "Immersive home",
+        value=st.session_state.get("immersive", True),
+        key="immersive",
+        help="Full-screen scroll-driven landing with the sidebar hidden. "
+             "Turn it off for a plain scrolling page.",
     )
 
     run = st.button("Run nowcast", type="primary", use_container_width=True)
@@ -276,6 +331,17 @@ def render_status_banners():
 # Tabs
 # ==========================================================================
 
+immersive_on = st.session_state.get("immersive", True)
+
+if immersive_on:
+    st.markdown(immersive_css(), unsafe_allow_html=True)
+    # With the sidebar hidden there must still be a way back to it.
+    exit_col = st.columns([6, 1])[1]
+    if exit_col.button("Show panel", key="exit_immersive",
+                       use_container_width=True):
+        st.session_state["_leave_immersive"] = True
+        st.rerun()
+
 tab_home, tab_now, tab_globe, tab_data, tab_model, tab_issues = st.tabs([
     "Home",
     "Nowcast",
@@ -291,11 +357,16 @@ tab_home, tab_now, tab_globe, tab_data, tab_model, tab_issues = st.tabs([
 # --------------------------------------------------------------------------
 
 with tab_home:
+    _boundary = cached_boundary("state_filled")
     landing.render(
         st,
         live_legs=observation.live_legs if observation else [],
         total_legs=len(fusion.REQUIRED_LEGS),
         has_run=result is not None,
+        immersive_mode=immersive_on,
+        boundary_uri=(_boundary.data["data_uri"]
+                      if _boundary is not None and _boundary.ok else None),
+        radars=cached_network_status(limit=12),
     )
 
 

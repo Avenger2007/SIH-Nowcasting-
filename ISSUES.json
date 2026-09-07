@@ -403,6 +403,50 @@
       "detail": "The scene advanced time by accumulating requestAnimationFrame deltas. When the component is embedded in an iframe, or the window is not foregrounded, RAF can be throttled to a standstill - the clock then stops permanently and the sky freezes on a single static frame. Measured directly: the exposed scene clock sat at exactly 0.000 s across eighteen seconds. The same throttling stalled the JavaScript tween library, leaving the headline at opacity 0, which would have shipped as a blank hero.",
       "impact": "The centrepiece of the landing page would have been a still image with no text on it.",
       "fix": "Scene time is now read from the wall clock rather than accumulated from frame deltas, so a stalled loop resumes at the correct point instead of freezing. A timer backstop drives a draw whenever RAF has not run for 200 ms. Text reveals were moved to CSS keyframes, which are compositor-driven and complete regardless. Verified after the fix: the clock advances 6.4 to 14.4 to 21.4 s and a lightning strike was captured mid-flash at 0.745."
+    },
+    {
+      "id": "BUG-038",
+      "severity": "critical",
+      "title": "Variable shadowed the render function and killed the scene",
+      "area": "UI",
+      "status": "fixed",
+      "found": "frontend/immersive.py",
+      "detail": "The viewport-sizing code declared `var frame = window.frameElement`, which shadowed the hoisted `frame()` render function. The animation loop then called an iframe element and threw TypeError: frame is not a function on every tick - hundreds of identical errors and a scene that never drew.",
+      "impact": "The globe was invisible; the landing page showed an empty gradient.",
+      "fix": "Renamed the element reference to hostFrame. Caught by reading the component's console rather than assuming the blank canvas was a shader problem."
+    },
+    {
+      "id": "BUG-039",
+      "severity": "high",
+      "title": "Pinned canvas pushed all content below the fold",
+      "area": "UI",
+      "status": "fixed",
+      "found": "frontend/immersive.py",
+      "detail": "The globe layer used position: sticky, which still occupies its own layout height. With the layer a full viewport tall, the first content panel started one screen down: scrollHeight measured 5544 for six panels in a 792 px frame, exactly one panel too many. No panel was ever in view at rest, so nothing revealed.",
+      "impact": "The landing page opened on a globe with no words on it.",
+      "fix": "Inside this iframe the frame is the viewport, so the layer is position: fixed - pinned correctly and costing no layout height."
+    },
+    {
+      "id": "BUG-040",
+      "severity": "medium",
+      "title": "IntersectionObserver never fired for panel reveals",
+      "area": "UI",
+      "status": "fixed",
+      "found": "frontend/immersive.py",
+      "detail": "Reveals were delegated to an IntersectionObserver rooted on the internal scroll container. It never fired inside the embedded frame, leaving every panel at opacity 0 with the copy invisible.",
+      "impact": "All landing copy would have been blank while the scene animated behind it.",
+      "fix": "Reveal is computed from the panel rectangle in the scroll handler. A few lines, deterministic, and it cannot silently do nothing. The threshold also treats anything scrolled past as revealed, so a fast scroll cannot strand a panel."
+    },
+    {
+      "id": "BUG-041",
+      "severity": "high",
+      "title": "Leaving immersive mode raised a Streamlit widget-state error",
+      "area": "Code",
+      "status": "fixed",
+      "found": "app.py",
+      "detail": "The exit button assigned to st.session_state.immersive, but that key is bound to the sidebar toggle, which is created earlier in the script. Streamlit raises StreamlitWidgetAlreadyInstantiatedError on any write to a widget-bound key after that widget exists, so pressing the button replaced the page with a traceback.",
+      "impact": "There was no way back out of immersive mode without restarting.",
+      "fix": "The button records an intent, and the intent is consumed at the top of the next run before the toggle is instantiated - the point at which the write is legal."
     }
   ]
 }

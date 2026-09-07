@@ -19,6 +19,7 @@ from typing import Dict, List, Optional
 import config
 
 from . import hero as hero_view
+from . import immersive
 from . import theme
 
 # --------------------------------------------------------------------------
@@ -148,18 +149,155 @@ def _issue_counts() -> Dict[str, int]:
         return {"total": 0, "fixed": 0, "open": 0}
 
 
+def immersive_sections(live_legs: List[str], total_legs: int,
+                       has_run: bool, counts: Dict[str, int]) -> List[Dict]:
+    """
+    Panels for the scroll-driven experience.
+
+    Built from the same constants as the classic layout, so the two views can
+    never tell different stories about the same system.
+    """
+    legs_value = f"{len(live_legs)}/{total_legs}" if has_run else f"—/{total_legs}"
+
+    return [
+        {
+            "eyebrow": f"Smart India Hackathon 2026 &nbsp;—&nbsp; {PROBLEM_STATEMENT['id']}",
+            "title": "Nowcasting the storm<br>before it breaks",
+            "body": (
+                "A 0 to 6 hour thunderstorm and lightning nowcast for India, "
+                "fusing INSAT satellite imagery, Doppler weather radar, "
+                "lightning detection and numerical model output into a single "
+                "calibrated probability."
+            ),
+            "stats": [
+                {"value": "0–6", "label": "Hour horizon"},
+                {"value": legs_value, "label": "Live data legs"},
+                {"value": "88", "label": "Model features"},
+                {"value": str(len(config.DWR_NETWORK)), "label": "Radar sites"},
+            ],
+        },
+        {
+            "eyebrow": "The problem",
+            "title": "Lightning is India's<br>deadliest weather hazard",
+            "body": (
+                "It kills more people each year than floods or cyclones, and "
+                "the deaths follow a pattern: outdoors, in rural districts, "
+                "in the afternoon, among people who cannot reach shelter "
+                "quickly."
+            ),
+            "items": [{"h": t, "b": b} for t, b in WHY_IT_MATTERS[1:]],
+        },
+        {
+            "eyebrow": "The brief",
+            "title": "Four sources are named.<br>All four are implemented.",
+            "body": (
+                "The problem statement asks for multiple radars, satellite, "
+                "lightning and model data. A submission that skips any of "
+                "them has not answered the question."
+            ),
+            "items": [
+                {"h": "Satellite",
+                 "b": "INSAT-3DS and 3DR, live from the MOSDAC public gallery."},
+                {"h": "Multiple radars",
+                 "b": "IMD Doppler composites, decoded from the printed scale."},
+                {"h": "Lightning",
+                 "b": "Strike density, cloud-to-ground ratio, the lightning jump."},
+                {"h": "Model data",
+                 "b": "CAPE, inhibition, Lifted Index, deep-layer shear."},
+            ],
+        },
+        {
+            "eyebrow": "Approach",
+            "title": "Six stages,<br>from orbit to a bulletin",
+            "body": (
+                "Satellite imagery is georeferenced through the geostationary "
+                "projection, cloud motion measured by dense optical flow, and "
+                "88 named features drive a model bound to its inputs by an "
+                "explicit contract."
+            ),
+            "items": [{"h": f"{n} · {t}", "b": b}
+                      for n, t, b, _ in CAPABILITIES[:4]],
+        },
+        {
+            "eyebrow": "Verification",
+            "title": "We measure skill the way<br>meteorologists do",
+            "body": (
+                "Thunderstorms are rare, so accuracy is meaningless: always "
+                "answering “no storm” scores 95% and saves nobody. We "
+                "report POD, FAR and CSI against a temporal split and a "
+                "persistence baseline."
+            ),
+        },
+        {
+            "eyebrow": "Status",
+            "title": "What we claim,<br>and what we do not",
+            "body": (
+                "The pipeline is real and runs on live government data. The "
+                "model is trained on synthetic labels and has no measured "
+                "forecast skill yet — every screen says so. Connecting an "
+                "observed lightning archive is the one remaining step."
+            ),
+            "items": [
+                {"h": "Working today",
+                 "b": "Live INSAT, radar and model data. Real cloud motion. "
+                      "A full verification suite and a physical cross-check."},
+                {"h": "Not finished",
+                 "b": f"Observed training labels. {counts['open']} open issues, "
+                      f"each documented with a next step."},
+            ],
+        },
+    ]
+
+
 def render(st, live_legs: Optional[List[str]] = None,
-           total_legs: int = 4, has_run: bool = False) -> None:
+           total_legs: int = 4, has_run: bool = False,
+           immersive_mode: bool = True,
+           boundary_uri: Optional[str] = None,
+           radars: Optional[List[Dict]] = None) -> None:
     """
     Draw the landing page.
+
+    Two presentations of the same content:
+
+    * immersive - one full-viewport scroll-driven scene, a pinned globe with
+      panels moving over it. This is the version to open in front of an
+      audience.
+    * classic - the same material as ordinary scrolling sections, which is
+      easier to read on a small screen and prints sensibly.
+
+    Both are generated from the same constants, so they cannot disagree.
 
     Args:
         st: the streamlit module.
         live_legs: data legs currently backed by real observations.
         has_run: whether a nowcast has been produced this session.
+        immersive_mode: render the scroll-driven experience.
+        boundary_uri: official India boundary texture, as a data URI.
+        radars: radar network rows for the globe.
     """
     live_legs = live_legs or []
     counts = _issue_counts()
+
+    if immersive_mode:
+        import streamlit.components.v1 as components
+
+        components.html(
+            immersive.build_immersive_html(
+                sections=immersive_sections(live_legs, total_legs,
+                                            has_run, counts),
+                boundary_uri=boundary_uri,
+                radars=radars or [],
+                satellites=[
+                    {"name": s.name, "lon": s.longitude, "status": s.status}
+                    for s in config.SATELLITES
+                    if s.altitude_km > 30000 and s.status == "operational"
+                ],
+                height=780,
+            ),
+            height=790,
+            scrolling=False,
+        )
+        return
 
     # ================= hero =================
     # A live storm, not a picture of one. Generated in a shader, so there is

@@ -15,6 +15,8 @@ Network-dependent tests are marked ``live`` and skipped by default:
 
 from __future__ import annotations
 
+import json
+
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -886,26 +888,72 @@ def test_frontend_modules_import_theme_relatively():
             )
 
 
-def test_landing_renders_without_live_data():
+class _FakeColumn:
+    def __init__(self, calls): self._calls = calls
+    def markdown(self, *a, **k): self._calls.append("markdown")
+    def button(self, *a, **k): self._calls.append("button"); return False
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+class _FakeStreamlit:
+    """Just enough Streamlit to render the landing page headlessly."""
+
+    def __init__(self): self.calls = []
+    def markdown(self, *a, **k): self.calls.append("markdown")
+    def caption(self, *a, **k): self.calls.append("caption")
+    def write(self, *a, **k): self.calls.append("write")
+    def columns(self, n, **k):
+        count = n if isinstance(n, int) else len(n)
+        return [_FakeColumn(self.calls) for _ in range(count)]
+
+
+def test_landing_classic_renders_without_live_data():
     """
     The home page must render before any nowcast has run. It is the first
     thing an evaluator sees, and it must not depend on a network fetch.
     """
     from frontend import landing
 
-    calls = []
+    st = _FakeStreamlit()
+    landing.render(st, live_legs=[], total_legs=4, has_run=False,
+                   immersive_mode=False)
+    assert len(st.calls) > 20, "landing page produced almost no output"
 
-    class FakeColumn:
-        def markdown(self, *a, **k): calls.append("markdown")
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
 
-    class FakeStreamlit:
-        def markdown(self, *a, **k): calls.append("markdown")
-        def caption(self, *a, **k): calls.append("caption")
-        def write(self, *a, **k): calls.append("write")
-        def columns(self, n, **k):
-            return [FakeColumn() for _ in range(n if isinstance(n, int) else len(n))]
+def test_immersive_sections_cover_the_story():
+    """
+    The immersive panels are built from the same constants as the classic
+    layout, so the two views cannot tell different stories.
+    """
+    from frontend import landing
 
-    landing.render(FakeStreamlit(), live_legs=[], total_legs=4, has_run=False)
-    assert len(calls) > 20, "landing page produced almost no output"
+    sections = landing.immersive_sections(
+        ["satellite", "nwp"], 4, True, {"open": 4, "fixed": 30, "total": 34}
+    )
+    assert len(sections) >= 5
+    for section in sections:
+        assert section.get("title"), "every panel needs a title"
+
+    joined = " ".join(s["title"] + " " + s.get("body", "") for s in sections)
+    # The honest status must survive any restructuring of the page.
+    assert "synthetic" in joined.lower()
+    assert "2/4" in json.dumps(sections)
+
+
+def test_immersive_html_embeds_its_payload():
+    """The generated component must carry its data and load a renderer."""
+    from frontend import immersive
+
+    html = immersive.build_immersive_html(
+        sections=[{"title": "Test panel", "body": "Body copy."}],
+        boundary_uri="data:image/png;base64,AAAA",
+        radars=[{"code": "DEL", "lat": 28.6, "lon": 77.2, "live": True}],
+        satellites=[{"name": "INSAT-3DS", "lon": 82.0, "status": "operational"}],
+    )
+    assert "Test panel" in html
+    assert "three.min.js" in html
+    assert "__PAYLOAD__" not in html, "payload placeholder was not substituted"
+    assert "__HEIGHT__" not in html, "height placeholder was not substituted"
+    # The scene must not depend on requestAnimationFrame alone; see BUG-037.
+    assert "setInterval" in html

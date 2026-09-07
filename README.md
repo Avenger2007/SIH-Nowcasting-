@@ -6,7 +6,7 @@
 
 [![Problem Statement](https://img.shields.io/badge/SIH_2026-SIH26072-1273D4?style=flat-square)](roadmap/01-problem-statement.md)
 [![Ministry](https://img.shields.io/badge/MoES-India_Meteorological_Department-0B4F94?style=flat-square)](https://mausam.imd.gov.in)
-[![Tests](https://img.shields.io/badge/tests-66_passing-1E8E52?style=flat-square)](tests/test_pipeline.py)
+[![Tests](https://img.shields.io/badge/tests-68_passing-1E8E52?style=flat-square)](tests/test_pipeline.py)
 [![Python](https://img.shields.io/badge/python-3.10+-4C4BC7?style=flat-square)](https://python.org)
 [![No GPU](https://img.shields.io/badge/hardware-CPU_only-E8890C?style=flat-square)](#)
 
@@ -187,7 +187,7 @@ python scripts/live_test.py Delhi
 python scripts/collect_frames.py --watch --interval 900
 
 # Tests
-pytest                # 61 offline
+pytest                # 63 offline
 pytest -m live        # 5 against live endpoints
 ```
 
@@ -234,14 +234,14 @@ scripts/
   train_real.py            Training on observed lightning labels
 
 roadmap/                   Full documentation
-tests/test_pipeline.py     66 tests; regression tests name the bug they guard
+tests/test_pipeline.py     68 tests; regression tests name the bug they guard
 ```
 
 ---
 
 ## Engineering register
 
-**37 issues tracked · 33 resolved · 4 open with documented next steps.**
+**41 issues tracked · 37 resolved · 4 open with documented next steps.**
 
 Every resolved bug has a regression test named after it. The register is
 rendered live inside the dashboard, open items included — including the bugs
