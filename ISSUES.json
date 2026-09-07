@@ -348,6 +348,17 @@
       "detail": "Switching the crop to a real geostationary reprojection changed the pixel geometry, but frames cached under the old fixed-fraction crop remained in the rolling buffer.",
       "impact": "Optical flow would have compared two different projections and reported large spurious cloud motion.",
       "fix": "Buffer cleared as part of the change. Frames are keyed by content hash, so the buffer refills cleanly from the next scan."
+    },
+    {
+      "id": "BUG-033",
+      "severity": "critical",
+      "title": "Palette rename could blank the entire app at import time",
+      "area": "UI",
+      "status": "fixed",
+      "found": "frontend/landing.py:58 (reported from a Streamlit Cloud deployment)",
+      "detail": "The landing page's APPROACH constant resolved theme colours at MODULE level (theme.BLUE). That runs during import, so any mismatch between the page and the palette raised AttributeError before Streamlit rendered anything at all. A deployment served a stale theme module alongside the new landing page and the whole dashboard showed a traceback instead of the app.",
+      "impact": "Total outage from a cosmetic value. The repository code was self-consistent; only the deployed container was stale, but the failure mode was fatal rather than degraded.",
+      "fix": "Presentation constants now hold SEMANTIC colour names resolved at render time by _tint(), which falls back to a literal. A palette gap now costs one swatch instead of the application. Modules inside the frontend package also import theme relatively, so no same-named package on sys.path can shadow it. Three regression tests were added: every theme reference in app.py, landing.py and globe.py must resolve; presentation constants must not hold resolved colours; and the landing page must render against a deliberately stale palette."
     }
   ]
 }

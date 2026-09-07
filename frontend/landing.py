@@ -17,7 +17,8 @@ import json
 from typing import Dict, List, Optional
 
 import config
-from frontend import theme
+
+from . import theme
 
 # --------------------------------------------------------------------------
 # Problem statement - reproduced from the SIH 2026 portal
@@ -52,25 +53,50 @@ WHY_IT_MATTERS = [
      "continuously. The gap is fusing them fast enough to act on."),
 ]
 
+# Colours are stored as SEMANTIC NAMES, not resolved theme attributes.
+#
+# Resolving `theme.BLUE` here would run at import time, so any mismatch
+# between this module and the palette raises before Streamlit renders
+# anything - the whole app dies with a traceback over a cosmetic value. That
+# is exactly what happened once when a deployment served a stale theme
+# module. Names are resolved at render time by `_tint()`, which falls back to
+# a literal, so a palette problem now costs one swatch instead of the app.
 APPROACH = [
     ("Ingest", "Satellite, radar, lightning and model data are fetched "
                "concurrently. Every payload records where it came from and "
-               "how fresh it is.", theme.BLUE),
+               "how fresh it is.", "blue"),
     ("Locate", "The satellite full disk is reprojected from the "
                "geostationary view onto a real latitude/longitude grid, so "
-               "every pixel has a genuine location.", theme.INDIGO),
+               "every pixel has a genuine location.", "indigo"),
     ("Track", "Dense optical flow measures cloud motion between consecutive "
               "scans, and cells are advected forward to each lead time.",
-     theme.VIOLET),
+     "violet"),
     ("Predict", "Eighty-eight named features drive a gradient-boosted model "
                 "that outputs a calibrated probability, aligned to its "
-                "inputs by an explicit feature contract.", theme.AMBER),
+                "inputs by an explicit feature contract.", "amber"),
     ("Check", "The probability is cross-examined against the physics. When "
               "the model and the atmosphere disagree, the system says so "
-              "rather than hiding it.", theme.GREEN),
+              "rather than hiding it.", "green"),
     ("Warn", "A plain-language bulletin is generated with the risk level, "
-             "the time window and concrete safety advice.", theme.RED),
+             "the time window and concrete safety advice.", "red"),
 ]
+
+# Semantic name -> (theme attribute, literal fallback)
+_TINTS = {
+    "blue":   ("BLUE", "#1273D4"),
+    "indigo": ("INDIGO", "#4C4BC7"),
+    "violet": ("VIOLET", "#7B5BD6"),
+    "amber":  ("AMBER", "#E8890C"),
+    "green":  ("GREEN", "#1E8E52"),
+    "red":    ("RED", "#D63A45"),
+    "slate":  ("SLATE", "#6B7C93"),
+}
+
+
+def _tint(name: str) -> str:
+    """Resolve a semantic colour name, falling back to a literal."""
+    attribute, fallback = _TINTS.get(name, ("BLUE", "#1273D4"))
+    return getattr(theme, attribute, fallback)
 
 PIPELINE_STEPS = [
     ("Acquire observations",
@@ -213,10 +239,10 @@ def render(st, live_legs: Optional[List[str]] = None,
     row1 = st.columns(3)
     row2 = st.columns(3)
     icons = ["◉", "▣", "➤", "◴", "✓", "⚡"]
-    for i, (title, body, tint) in enumerate(APPROACH):
+    for i, (title, body, tint_name) in enumerate(APPROACH):
         target = row1[i] if i < 3 else row2[i - 3]
         target.markdown(
-            theme.feature_card(icons[i], title, body, tint),
+            theme.feature_card(icons[i], title, body, _tint(tint_name)),
             unsafe_allow_html=True,
         )
 
@@ -246,8 +272,8 @@ def render(st, live_legs: Optional[List[str]] = None,
     leg_cols = st.columns(4)
     for col, (name, body, key) in zip(leg_cols, legs):
         is_live = key in live_legs
-        colour = (theme.GREEN if is_live
-                  else (theme.SLATE if has_run else theme.BLUE))
+        colour = (_tint("green") if is_live
+                  else (_tint("slate") if has_run else _tint("blue")))
         label = ("live" if is_live
                  else ("not connected" if has_run else "run to check"))
         col.markdown(
@@ -277,7 +303,7 @@ def render(st, live_legs: Optional[List[str]] = None,
 
     honest_cols = st.columns(2)
     honest_cols[0].markdown(
-        f'<div class="lp-card" style="border-left:3px solid {theme.GREEN}">'
+        f'<div class="lp-card" style="border-left:3px solid {_tint("green")}">'
         f'<div class="lp-h">What works today</div>'
         f'<div class="lp-b">'
         f'Live INSAT imagery, georeferenced to within a few kilometres and '
@@ -289,7 +315,7 @@ def render(st, live_legs: Optional[List[str]] = None,
         unsafe_allow_html=True,
     )
     honest_cols[1].markdown(
-        f'<div class="lp-card" style="border-left:3px solid {theme.AMBER}">'
+        f'<div class="lp-card" style="border-left:3px solid {_tint("amber")}">'
         f'<div class="lp-h">What is not finished</div>'
         f'<div class="lp-b">'
         f'The model is trained on synthetic labels, so it has no measured '

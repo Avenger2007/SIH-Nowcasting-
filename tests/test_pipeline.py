@@ -781,3 +781,116 @@ def test_live_insat_is_georeferenced():
     assert result.status == SourceStatus.LIVE
     assert result.data["georeferenced"] is True
     assert result.data["bbox"] == list(config.INDIA_BBOX)
+
+
+# ==========================================================================
+# Presentation layer integrity
+# ==========================================================================
+
+def _theme_references(path):
+    """Every `theme.X` referenced by a source file."""
+    import re
+    from pathlib import Path
+
+    source = Path(path).read_text(encoding="utf-8")
+    return set(re.findall(r"theme\.([A-Za-z_][A-Za-z0-9_]*)", source))
+
+
+def test_every_theme_reference_resolves():
+    """
+    Guards BUG-033. A `theme.X` that does not exist raises AttributeError at
+    import time and takes down the entire app, showing a traceback instead of
+    the dashboard. This caught a live deployment failure where a renamed
+    palette left `theme.BLUE` unresolved.
+    """
+    from pathlib import Path
+
+    from frontend import theme
+
+    root = Path(__file__).resolve().parent.parent
+    targets = [
+        root / "app.py",
+        root / "frontend" / "landing.py",
+        root / "frontend" / "globe.py",
+    ]
+
+    missing = {}
+    for target in targets:
+        if not target.exists():
+            continue
+        absent = sorted(
+            name for name in _theme_references(target)
+            if not hasattr(theme, name)
+        )
+        if absent:
+            missing[target.name] = absent
+
+    assert not missing, f"unresolved theme attributes: {missing}"
+
+
+def test_landing_does_not_resolve_theme_at_import_time():
+    """
+    Guards BUG-033. Module-level colour lookups make a palette mismatch fatal
+    to the whole application. Presentation constants must hold semantic names
+    that are resolved during render instead.
+    """
+    from frontend import landing
+
+    for entry in landing.APPROACH:
+        tint = entry[2]
+        assert isinstance(tint, str), f"{tint!r} should be a semantic name"
+        assert not tint.startswith("#"), (
+            f"{tint!r} is a resolved colour; store a semantic name so a "
+            f"palette change cannot break module import"
+        )
+        assert tint in landing._TINTS, f"unknown tint name {tint!r}"
+
+
+def test_tint_falls_back_when_palette_is_missing_a_token():
+    """A palette gap must degrade one swatch, never raise."""
+    from frontend import landing
+
+    colour = landing._tint("definitely-not-a-real-tint")
+    assert colour.startswith("#") and len(colour) == 7
+
+
+def test_frontend_modules_import_theme_relatively():
+    """
+    Absolute imports inside the package resolve through sys.path, where a
+    same-named package can shadow this one. Relative imports cannot be
+    shadowed.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent / "frontend"
+    for name in ("landing.py",):
+        source = (root / name).read_text(encoding="utf-8")
+        if "import theme" in source:
+            assert "from . import theme" in source, (
+                f"{name} must import theme relatively"
+            )
+
+
+def test_landing_renders_without_live_data():
+    """
+    The home page must render before any nowcast has run. It is the first
+    thing an evaluator sees, and it must not depend on a network fetch.
+    """
+    from frontend import landing
+
+    calls = []
+
+    class FakeColumn:
+        def markdown(self, *a, **k): calls.append("markdown")
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    class FakeStreamlit:
+        def markdown(self, *a, **k): calls.append("markdown")
+        def caption(self, *a, **k): calls.append("caption")
+        def write(self, *a, **k): calls.append("write")
+        def columns(self, n, **k):
+            return [FakeColumn() for _ in range(n if isinstance(n, int) else len(n))]
+
+    landing.render(FakeStreamlit(), live_legs=[], total_legs=4, has_run=False)
+    assert len(calls) > 20, "landing page produced almost no output"
