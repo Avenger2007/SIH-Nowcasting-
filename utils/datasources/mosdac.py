@@ -465,7 +465,7 @@ def fetch_insat_l1b(dataset_id: str = "3SIMG_L1B_STD") -> SourceResult:
         status=SourceStatus.NEEDS_CREDENTIALS,
         message=(
             "Credentials are present but the asynchronous FTP order workflow "
-            "is not automated here. See REAL_DATA_INTEGRATION.md for the "
+            "is not automated here. See roadmap/05-data-sources.md for the "
             "mdapi.py batch procedure."
         ),
         citation="ISRO/MOSDAC",

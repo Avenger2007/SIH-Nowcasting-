@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config
 from frontend import globe as globe_view
+from frontend import landing
 from frontend import theme
 from utils import consistency
 from utils import features as feat
@@ -209,20 +210,20 @@ with st.sidebar:
 # Header
 # ==========================================================================
 
-st.markdown(
-    theme.hero(
-        "Thunderstorm &amp; Lightning Nowcasting",
-        "0–6 hour AI/ML nowcast · SIH 26072 · MoES / IMD",
-    ),
-    unsafe_allow_html=True,
-)
+# The hero is drawn by the landing page on the Home tab; other tabs get a
+# compact header so the working area stays as large as possible.
 
 
 # ==========================================================================
 # Run
 # ==========================================================================
 
-if run or "result" not in st.session_state:
+# The pipeline is NOT run automatically on first load. Fetching four data
+# sources takes the better part of a minute, and Streamlit renders nothing
+# until the script completes - so an evaluator opening the app cold would face
+# a blank page. The home page needs no live data, so it paints immediately and
+# the nowcast runs on demand.
+if run:
     with st.spinner("Fetching satellite, radar, lightning and model data…"):
         result, observation, error = run_pipeline(city, allow_simulation)
     st.session_state.result = result
@@ -245,35 +246,38 @@ prediction = result["prediction"] if result else None
 # Model-status banner: shown before any number is interpreted.
 # --------------------------------------------------------------------------
 
-if prediction:
-    if prediction["is_demonstration_only"]:
-        banner_class = "banner-demo"
-    elif prediction["out_of_distribution"]:
-        banner_class = "banner-warn"
-    else:
-        banner_class = "banner-ok"
-    st.markdown(
-        f'<div class="banner {banner_class}">{prediction["banner"]}</div>',
-        unsafe_allow_html=True,
-    )
+def render_status_banners():
+    """Model provenance and data coverage, shown above any interpretation."""
+    if prediction:
+        if prediction["is_demonstration_only"]:
+            banner_class = "banner-demo"
+        elif prediction["out_of_distribution"]:
+            banner_class = "banner-warn"
+        else:
+            banner_class = "banner-ok"
+        st.markdown(
+            f'<div class="banner {banner_class}">{prediction["banner"]}</div>',
+            unsafe_allow_html=True,
+        )
 
-if observation:
-    coverage_class = (
-        "banner-ok" if observation.coverage_fraction == 1.0
-        else "banner-warn"
-    )
-    st.markdown(
-        f'<div class="banner {coverage_class}">'
-        f'<b>Data coverage.</b> {observation.confidence_note()}</div>',
-        unsafe_allow_html=True,
-    )
+    if observation:
+        coverage_class = (
+            "banner-ok" if observation.coverage_fraction == 1.0
+            else "banner-warn"
+        )
+        st.markdown(
+            f'<div class="banner {coverage_class}">'
+            f'<b>Data coverage.</b> {observation.confidence_note()}</div>',
+            unsafe_allow_html=True,
+        )
 
 
 # ==========================================================================
 # Tabs
 # ==========================================================================
 
-tab_now, tab_globe, tab_data, tab_model, tab_issues = st.tabs([
+tab_home, tab_now, tab_globe, tab_data, tab_model, tab_issues = st.tabs([
+    "Home",
     "Nowcast",
     "3D Network",
     "Data sources",
@@ -283,10 +287,25 @@ tab_now, tab_globe, tab_data, tab_model, tab_issues = st.tabs([
 
 
 # --------------------------------------------------------------------------
+# Home
+# --------------------------------------------------------------------------
+
+with tab_home:
+    landing.render(
+        st,
+        live_legs=observation.live_legs if observation else [],
+        total_legs=len(fusion.REQUIRED_LEGS),
+        has_run=result is not None,
+    )
+
+
+# --------------------------------------------------------------------------
 # Nowcast
 # --------------------------------------------------------------------------
 
 with tab_now:
+    render_status_banners()
+
     if not result:
         st.info("Press **Run nowcast** in the sidebar.")
     else:
@@ -297,8 +316,8 @@ with tab_now:
         cols = st.columns(5)
         cells = [
             ("Thunderstorm probability", f"{probability:.1f}%",
-             "next 0–6 hours", band.hex),
-            ("Risk level", band.name, "IMD banding", band.hex),
+             "next 0–6 hours", theme.RISK_COLORS.get(band.name, theme.BLUE)),
+            ("Risk level", band.name, "IMD banding", theme.RISK_COLORS.get(band.name, theme.BLUE)),
             ("Coldest cloud top", f"{features['bt_min']:.0f} K",
              f"{features['bt_min'] - 273.15:.0f} °C", None),
             ("CAPE", f"{features['cape_j_kg']:.0f}",
@@ -318,29 +337,30 @@ with tab_now:
                 mode="gauge+number",
                 value=probability,
                 number={"suffix": "%", "font": {"size": 46,
-                                                "color": theme.TEXT}},
+                                                "color": theme.BLUE_DARK}},
                 title={"text": "Thunderstorm probability, 0–6 h",
-                       "font": {"size": 13, "color": theme.TEXT_DIM}},
+                       "font": {"size": 13, "color": theme.INK_SOFT}},
                 gauge={
                     "axis": {"range": [0, 100],
-                             "tickcolor": theme.TEXT_FAINT,
-                             "tickfont": {"color": theme.TEXT_FAINT,
+                             "tickcolor": theme.INK_FAINT,
+                             "tickfont": {"color": theme.INK_FAINT,
                                           "size": 10}},
-                    "bar": {"color": band.hex, "thickness": 0.28},
+                    "bar": {"color": theme.RISK_COLORS.get(band.name, theme.BLUE),
+                            "thickness": 0.3},
                     "bgcolor": "rgba(0,0,0,0)",
                     "borderwidth": 0,
                     "steps": [
-                        {"range": [0, 20], "color": "rgba(46,204,113,0.16)"},
-                        {"range": [20, 40], "color": "rgba(255,197,49,0.16)"},
-                        {"range": [40, 70], "color": "rgba(255,140,26,0.18)"},
-                        {"range": [70, 100], "color": "rgba(255,59,82,0.20)"},
+                        {"range": [0, 20], "color": "#E6F6EC"},
+                        {"range": [20, 40], "color": "#FEF6DC"},
+                        {"range": [40, 70], "color": "#FFF3E0"},
+                        {"range": [70, 100], "color": "#FDECEE"},
                     ],
                 },
             ))
             gauge.update_layout(
                 height=290, margin=dict(t=50, b=10, l=24, r=24),
                 paper_bgcolor="rgba(0,0,0,0)",
-                font={"color": theme.TEXT},
+                font={"color": theme.INK},
             )
             st.plotly_chart(gauge, use_container_width=True)
 
@@ -350,9 +370,9 @@ with tab_now:
                 theme.panel(
                     f"Public bulletin — {alert['method']}",
                     f'<div style="font-size:0.95rem;line-height:1.75;'
-                    f'color:{theme.TEXT}">{alert["text"]}</div>'
+                    f'color:{theme.INK}">{alert["text"]}</div>'
                     + (f'<div style="font-size:0.72rem;margin-top:10px;'
-                       f'color:{theme.TEXT_FAINT}">{alert["note"]}</div>'
+                       f'color:{theme.INK_FAINT}">{alert["note"]}</div>'
                        if alert["note"] else ""),
                 ),
                 unsafe_allow_html=True,
@@ -379,10 +399,10 @@ with tab_now:
         )
 
         verdict_color = {
-            "supports": theme.BAD,        # supports convection = higher risk
-            "neutral": theme.ACCENT_WARM,
-            "opposes": theme.GOOD,
-            "unobserved": theme.IDLE,
+            "supports": theme.RED,        # supports convection = higher risk
+            "neutral": theme.AMBER,
+            "opposes": theme.GREEN,
+            "unobserved": theme.SLATE,
         }
         ev_rows = "".join(
             f'<div class="src-row" style="border-left-color:'
@@ -469,15 +489,15 @@ with tab_now:
             trend = go.Figure()
             trend.add_trace(go.Scatter(
                 x=times, y=cape, name="CAPE (J/kg)",
-                line=dict(color=theme.ACCENT_WARM, width=2.5),
-                fill="tozeroy", fillcolor="rgba(255,210,63,0.13)",
+                line=dict(color=theme.AMBER, width=2.5),
+                fill="tozeroy", fillcolor="rgba(232,137,12,0.12)",
             ))
             trend.update_layout(
                 height=250, margin=dict(t=26, b=26, l=10, r=10),
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                font={"color": theme.TEXT_DIM, "size": 11},
-                xaxis=dict(gridcolor="rgba(120,180,255,0.08)"),
-                yaxis=dict(gridcolor="rgba(120,180,255,0.08)",
+                font={"color": theme.INK_SOFT, "size": 11},
+                xaxis=dict(gridcolor=theme.SKY_200, zerolinecolor=theme.SKY_200),
+                yaxis=dict(gridcolor=theme.SKY_200, zerolinecolor=theme.SKY_200,
                            title="CAPE (J/kg)"),
                 showlegend=False,
             )
@@ -490,7 +510,7 @@ with tab_now:
                 col.markdown(
                     theme.panel(key.replace("_", " "),
                                 f'<div style="font-size:0.8rem;'
-                                f'color:{theme.TEXT_DIM}">{text}</div>'),
+                                f'color:{theme.INK_SOFT}">{text}</div>'),
                     unsafe_allow_html=True,
                 )
 
@@ -573,7 +593,7 @@ with tab_globe:
     with inv_left:
         rows = "".join(
             f'<div class="src-row" style="border-left-color:'
-            f'{theme.GOOD if s.status == "operational" else theme.IDLE}">'
+            f'{theme.GREEN if s.status == "operational" else theme.SLATE}">'
             f'<div class="src-leg">{s.name}</div>'
             f'<div class="src-body">'
             f'<div class="src-name">{s.operator} — {s.longitude:.0f}° E</div>'
@@ -587,7 +607,7 @@ with tab_globe:
         live_count = sum(1 for r in network if r.get("live"))
         rows = "".join(
             f'<div class="src-row" style="border-left-color:'
-            f'{theme.ACCENT_WARM if r.get("contributing") else (theme.GOOD if r.get("live") else theme.IDLE)}">'
+            f'{theme.AMBER if r.get("contributing") else (theme.GREEN if r.get("live") else theme.SLATE)}">'
             f'<div class="src-leg">{r["code"]}</div>'
             f'<div class="src-body">'
             f'<div class="src-name">{r["city"]} — {r["band"]}-band, '
@@ -669,7 +689,7 @@ with tab_model:
         cols[0].markdown(theme.metric(
             "Training data", card.training_data.upper(),
             "provenance of the labels",
-            theme.BAD if card.is_demonstration_only else theme.GOOD,
+            theme.RED if card.is_demonstration_only else theme.GREEN,
         ), unsafe_allow_html=True)
         cols[1].markdown(theme.metric(
             "Samples", f"{card.n_samples:,}", "total"), unsafe_allow_html=True)
@@ -684,7 +704,7 @@ with tab_model:
             st.markdown(
                 theme.panel("Label definition",
                             f'<div style="font-size:0.82rem;'
-                            f'color:{theme.TEXT_DIM}">'
+                            f'color:{theme.INK_SOFT}">'
                             f'{card.label_definition}</div>'),
                 unsafe_allow_html=True,
             )
@@ -722,11 +742,11 @@ with tab_model:
                 fig.add_trace(go.Scatter(
                     x=roc.get("pofd", []), y=roc.get("pod", []),
                     mode="lines", name="Model",
-                    line=dict(color=theme.ACCENT, width=2.5),
+                    line=dict(color=theme.BLUE, width=2.5),
                 ))
                 fig.add_trace(go.Scatter(
                     x=[0, 1], y=[0, 1], mode="lines", name="No skill",
-                    line=dict(color=theme.IDLE, width=1.5, dash="dash"),
+                    line=dict(color=theme.SLATE, width=1.5, dash="dash"),
                 ))
                 fig.update_layout(
                     title="ROC curve", height=330,
@@ -734,9 +754,9 @@ with tab_model:
                     yaxis_title="Probability of detection",
                     paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)",
-                    font={"color": theme.TEXT_DIM, "size": 11},
-                    xaxis=dict(gridcolor="rgba(120,180,255,0.08)"),
-                    yaxis=dict(gridcolor="rgba(120,180,255,0.08)"),
+                    font={"color": theme.INK_SOFT, "size": 11},
+                    xaxis=dict(gridcolor=theme.SKY_200, zerolinecolor=theme.SKY_200),
+                    yaxis=dict(gridcolor=theme.SKY_200, zerolinecolor=theme.SKY_200),
                     margin=dict(t=44, b=40, l=50, r=16),
                 )
                 st.plotly_chart(fig, use_container_width=True)
@@ -748,11 +768,11 @@ with tab_model:
                     x=rel.get("forecast_probability", []),
                     y=rel.get("observed_frequency", []),
                     mode="lines+markers", name="Model",
-                    line=dict(color=theme.ACCENT_WARM, width=2.5),
+                    line=dict(color=theme.AMBER, width=2.5),
                 ))
                 fig.add_trace(go.Scatter(
                     x=[0, 1], y=[0, 1], mode="lines", name="Perfect",
-                    line=dict(color=theme.IDLE, width=1.5, dash="dash"),
+                    line=dict(color=theme.SLATE, width=1.5, dash="dash"),
                 ))
                 fig.update_layout(
                     title="Reliability (calibration)", height=330,
@@ -760,9 +780,9 @@ with tab_model:
                     yaxis_title="Observed frequency",
                     paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)",
-                    font={"color": theme.TEXT_DIM, "size": 11},
-                    xaxis=dict(gridcolor="rgba(120,180,255,0.08)"),
-                    yaxis=dict(gridcolor="rgba(120,180,255,0.08)"),
+                    font={"color": theme.INK_SOFT, "size": 11},
+                    xaxis=dict(gridcolor=theme.SKY_200, zerolinecolor=theme.SKY_200),
+                    yaxis=dict(gridcolor=theme.SKY_200, zerolinecolor=theme.SKY_200),
                     margin=dict(t=44, b=40, l=50, r=16),
                 )
                 st.plotly_chart(fig, use_container_width=True)
@@ -788,15 +808,15 @@ with tab_model:
 
             fig = go.Figure(go.Bar(
                 x=values, y=names, orientation="h",
-                marker=dict(color=values, colorscale="Blues"),
+                marker=dict(color=values, colorscale="Blues", showscale=False),
             ))
             fig.update_layout(
                 height=520, paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
-                font={"color": theme.TEXT_DIM, "size": 11},
+                font={"color": theme.INK_SOFT, "size": 11},
                 xaxis=dict(gridcolor="rgba(120,180,255,0.08)",
                            title="Gain"),
-                yaxis=dict(gridcolor="rgba(0,0,0,0)"),
+                yaxis=dict(gridcolor="rgba(0,0,0,0)", tickfont={"size": 10}),
                 margin=dict(t=16, b=40, l=210, r=16),
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -853,15 +873,15 @@ with tab_issues:
         "Total tracked", str(len(issues)), "bugs and issues"),
         unsafe_allow_html=True)
     cols[1].markdown(theme.metric(
-        "Fixed", str(len(fixed)), "verified in this build", theme.GOOD),
+        "Fixed", str(len(fixed)), "verified in this build", theme.GREEN),
         unsafe_allow_html=True)
     cols[2].markdown(theme.metric(
         "Open", str(len(open_issues)), "documented, with next steps",
-        theme.WARN), unsafe_allow_html=True)
+        theme.AMBER), unsafe_allow_html=True)
     cols[3].markdown(theme.metric(
         "Critical fixed",
         str(len([i for i in fixed if i["severity"] == "critical"])),
-        "would have invalidated results", theme.BAD),
+        "would have invalidated results", theme.RED),
         unsafe_allow_html=True)
 
     st.write("")

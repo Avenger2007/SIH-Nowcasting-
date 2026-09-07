@@ -312,7 +312,7 @@ def fetch_lightning(lat: float,
         message=(
             "No lightning network connected. Indian networks (IITM/ISRO, "
             "ENTLN, GLD360) all require institutional access; see "
-            "REAL_DATA_INTEGRATION.md. Lightning features are zero-filled and "
+            "roadmap/05-data-sources.md. Lightning features are zero-filled and "
             "the model is told they are unobserved."
         ),
         citation="No provider configured",

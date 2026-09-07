@@ -342,7 +342,7 @@ def generate_detailed_report(prediction: Dict,
             "",
             "No held-out verification metrics are available for this model. "
             "Skill scores (POD, FAR, CSI, Brier) require training against "
-            "observed lightning labels - see REAL_DATA_INTEGRATION.md.",
+            "observed lightning labels - see roadmap/08-model-roadmap.md.",
             "",
         ]
 

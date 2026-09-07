@@ -119,7 +119,7 @@ _TEMPLATE = r"""
     <div class="gl-row"><span class="dot dot-off"></span>No public feed</div>
     <div class="gl-row"><span class="dot dot-sat"></span>INSAT satellite</div>
     <div class="gl-row"><span class="dot dot-target"></span>Forecast point</div>
-    <div class="gl-row" style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(120,180,255,.16);font-size:9.5px;opacity:.72">Boundaries: ISRO Bhuvan / NRSC<br>Survey of India depiction</div>
+    <div class="gl-row" style="margin-top:7px;padding-top:7px;border-top:1px solid #CFE3F7;font-size:9.5px;color:#7C93AC">Boundaries: ISRO Bhuvan / NRSC<br>Survey of India depiction</div>
   </div>
 
   <div class="globe-overlay globe-hint">drag to rotate &middot; scroll to zoom<br><span style="opacity:.72">orbit radius compressed for legibility</span></div>
@@ -135,8 +135,8 @@ _TEMPLATE = r"""
     border-radius: 16px;
     overflow: hidden;
     background:
-      radial-gradient(ellipse at 30% 12%, #16294d 0%, #0a1226 42%, #05070f 100%);
-    border: 1px solid rgba(120, 190, 255, 0.16);
+      radial-gradient(ellipse at 26% 6%, #FFFFFF 0%, #E9F3FE 42%, #D9E9FB 100%);
+    border: 1px solid #CFE3F7;
     font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
   }
   #globe-canvas { position: absolute; inset: 0; }
@@ -145,71 +145,72 @@ _TEMPLATE = r"""
     position: absolute;
     z-index: 5;
     pointer-events: none;
-    color: #dbe9ff;
+    color: #10263F;
   }
   .globe-title { top: 18px; left: 22px; }
   .gt-main {
-    font-size: 15px; font-weight: 700; letter-spacing: 2.4px;
-    color: #eaf3ff; text-shadow: 0 0 18px rgba(90, 170, 255, 0.55);
+    font-size: 15px; font-weight: 800; letter-spacing: 2.2px;
+    color: #0B4F94;
   }
   .gt-sub {
     font-size: 11px; letter-spacing: 0.4px; margin-top: 4px;
-    color: rgba(175, 205, 245, 0.72);
+    color: #44607F;
   }
 
   .globe-legend {
     bottom: 18px; left: 22px;
-    background: rgba(8, 16, 34, 0.62);
-    border: 1px solid rgba(120, 180, 255, 0.18);
-    border-radius: 10px;
-    padding: 11px 14px;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #CFE3F7;
+    border-radius: 12px;
+    padding: 12px 15px;
+    box-shadow: 0 3px 14px rgba(16,38,63,.09);
     backdrop-filter: blur(7px);
   }
   .gl-row {
     display: flex; align-items: center; gap: 9px;
-    font-size: 11px; color: rgba(205, 224, 250, 0.9);
+    font-size: 11px; color: #44607F; font-weight: 500;
     margin: 4px 0;
   }
   .dot {
     width: 9px; height: 9px; border-radius: 50%;
     display: inline-block; flex: none;
   }
-  .dot-live    { background: #35e08a; box-shadow: 0 0 9px #35e08a; }
-  .dot-contrib { background: #ffd23f; box-shadow: 0 0 9px #ffd23f; }
-  .dot-off     { background: #4a5a78; }
-  .dot-sat     { background: #63b8ff; box-shadow: 0 0 9px #63b8ff; }
-  .dot-target  { background: #ff4d6d; box-shadow: 0 0 11px #ff4d6d; }
+  .dot-live    { background: #1E8E52; }
+  .dot-contrib { background: #E8890C; }
+  .dot-off     { background: #B4C4D6; }
+  .dot-sat     { background: #1273D4; }
+  .dot-target  { background: #D63A45; }
 
   .globe-hint {
     bottom: 18px; right: 22px;
     font-size: 10.5px; letter-spacing: 0.7px;
-    color: rgba(150, 180, 220, 0.5);
+    color: #7C93AC;
   }
 
   #globe-tip {
     position: absolute; z-index: 9; pointer-events: none;
     display: none;
-    background: rgba(9, 18, 38, 0.94);
-    border: 1px solid rgba(120, 190, 255, 0.34);
-    border-radius: 9px;
-    padding: 9px 12px;
+    background: #FFFFFF;
+    border: 1px solid #CFE3F7;
+    border-radius: 11px;
+    padding: 10px 13px;
     font-size: 11.5px; line-height: 1.55;
-    color: #e8f2ff;
-    max-width: 260px;
-    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.6);
+    color: #10263F;
+    max-width: 265px;
+    box-shadow: 0 8px 26px rgba(16,38,63,.16);
   }
   #globe-tip .tip-h {
     font-weight: 700; font-size: 12.5px;
-    color: #9fd2ff; margin-bottom: 3px;
+    color: #0B4F94; margin-bottom: 4px;
   }
-  #globe-tip .tip-k { color: rgba(165, 195, 235, 0.72); }
+  #globe-tip .tip-k { color: #7C93AC; }
 
   #globe-fallback {
     position: absolute; inset: 0;
     display: none;
     align-items: center; justify-content: center;
     text-align: center; padding: 30px;
-    color: #b9d2f2; font-size: 13px; line-height: 1.7;
+    color: #44607F; font-size: 13px; line-height: 1.7;
   }
 </style>
 
@@ -226,7 +227,7 @@ _TEMPLATE = r"""
     fb.style.display = 'flex';
     fb.innerHTML = 'The 3D globe needs three.js from cdnjs.cloudflare.com.<br>' +
                    'No internet connection was available, so the view is hidden.<br>' +
-                   '<span style="opacity:.6">Every other panel works offline.</span>';
+                   '<span style="opacity:.65">Every other panel works offline.</span>';
     return;
   }
 
@@ -263,22 +264,24 @@ _TEMPLATE = r"""
 
   var pickable = [];
 
-  // ------------------------------------------------------------------ stars
-  (function starfield() {
+  // ------------------------------------------------------- atmospheric veil
+  // A daylight scene has no stars. A sparse veil of pale particles reads as
+  // high cirrus and keeps the scene from feeling empty.
+  (function veil() {
     var g = new THREE.BufferGeometry();
-    var n = 2600, pos = new Float32Array(n * 3);
+    var n = 900, pos = new Float32Array(n * 3);
     for (var i = 0; i < n; i++) {
-      var r = 2600 + Math.random() * 5200;
+      var r = 900 + Math.random() * 2400;
       var t = Math.random() * Math.PI * 2;
       var p = Math.acos(2 * Math.random() - 1);
       pos[i*3]   = r * Math.sin(p) * Math.cos(t);
-      pos[i*3+1] = r * Math.cos(p);
+      pos[i*3+1] = r * Math.cos(p) * 0.55;
       pos[i*3+2] = r * Math.sin(p) * Math.sin(t);
     }
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     scene.add(new THREE.Points(g, new THREE.PointsMaterial({
-      color: 0xbcd4f5, size: 2.4, sizeAttenuation: false,
-      transparent: true, opacity: 0.62
+      color: 0x8FBEEA, size: 2.6, sizeAttenuation: false,
+      transparent: true, opacity: 0.34
     })));
   })();
 
@@ -286,9 +289,9 @@ _TEMPLATE = r"""
   var globe = new THREE.Mesh(
     new THREE.SphereGeometry(R, 64, 64),
     new THREE.MeshPhongMaterial({
-      color: 0x0d2144, emissive: 0x061024,
-      specular: 0x2a5fa8, shininess: 14,
-      transparent: true, opacity: 0.95
+      color: 0x7FB4E4, emissive: 0x18406E,
+      specular: 0xDCEEFF, shininess: 26,
+      transparent: true, opacity: 1.0
     })
   );
   scene.add(globe);
@@ -298,7 +301,7 @@ _TEMPLATE = r"""
     new THREE.SphereGeometry(R * 1.035, 64, 64),
     new THREE.ShaderMaterial({
       transparent: true, side: THREE.BackSide, depthWrite: false,
-      uniforms: { glow: { value: new THREE.Color(0x4aa8ff) } },
+      uniforms: { glow: { value: new THREE.Color(0xBFDDFA) } },
       vertexShader:
         'varying float rim;' +
         'void main(){' +
@@ -309,7 +312,7 @@ _TEMPLATE = r"""
         '}',
       fragmentShader:
         'uniform vec3 glow; varying float rim;' +
-        'void main(){ gl_FragColor = vec4(glow, rim * 0.62); }'
+        'void main(){ gl_FragColor = vec4(glow, rim * 0.80); }'
     })
   );
   scene.add(atmosphere);
@@ -317,7 +320,7 @@ _TEMPLATE = r"""
   // Graticule every 15 degrees.
   (function graticule() {
     var mat = new THREE.LineBasicMaterial({
-      color: 0x3d7fc4, transparent: true, opacity: 0.19
+      color: 0xFFFFFF, transparent: true, opacity: 0.34
     });
     var group = new THREE.Group();
     var lat, lon, pts, i;
@@ -341,7 +344,7 @@ _TEMPLATE = r"""
     for (var i = 0; i <= 200; i++) pts.push(toVec(0, -180 + i * 360 / 200, R * 1.004));
     scene.add(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.LineBasicMaterial({ color: 0x63b8ff, transparent: true, opacity: 0.35 })
+      new THREE.LineBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.58 })
     ));
   })();
 
@@ -397,16 +400,16 @@ _TEMPLATE = r"""
     for (i = 0; i <= 40; i++) pts.push(toVec(b.n - i * (b.n - b.s) / 40, b.w, R * 1.010));
     scene.add(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.LineBasicMaterial({ color: 0x7ce0ff, transparent: true, opacity: 0.42 })
+      new THREE.LineBasicMaterial({ color: 0x0B4F94, transparent: true, opacity: 0.55 })
     ));
   })();
 
   // ------------------------------------------------------------------ lights
-  scene.add(new THREE.AmbientLight(0x88aadd, 0.85));
-  var key = new THREE.DirectionalLight(0xcfe4ff, 0.95);
+  scene.add(new THREE.AmbientLight(0xFFFFFF, 0.95));
+  var key = new THREE.DirectionalLight(0xFFFFFF, 0.75);
   key.position.set(300, 220, 420);
   scene.add(key);
-  var rimLight = new THREE.DirectionalLight(0x2f6fd0, 0.5);
+  var rimLight = new THREE.DirectionalLight(0xAFD4F5, 0.45);
   rimLight.position.set(-320, -120, -260);
   scene.add(rimLight);
 
@@ -414,7 +417,7 @@ _TEMPLATE = r"""
   var pulses = [];
   DATA.radars.forEach(function (r) {
     var pos = toVec(r.lat, r.lon, R * 1.016);
-    var colour = r.contributing ? 0xffd23f : (r.live ? 0x35e08a : 0x4a5a78);
+    var colour = r.contributing ? 0xE8890C : (r.live ? 0x1E8E52 : 0x8FA9C2);
     var active = r.live || r.contributing;
 
     var pin = new THREE.Mesh(
@@ -468,7 +471,7 @@ _TEMPLATE = r"""
     var dot = new THREE.Mesh(
       new THREE.SphereGeometry(0.62, 8, 8),
       new THREE.MeshBasicMaterial({
-        color: 0x9fc7f0, transparent: true, opacity: 0.55
+        color: 0x0B4F94, transparent: true, opacity: 0.5
       })
     );
     dot.position.copy(pos);
@@ -487,12 +490,12 @@ _TEMPLATE = r"""
   DATA.satellites.filter(function (s) { return s.geo; }).forEach(function (s) {
     var pos = toVec(0, s.lon, GEO);
     var operational = s.status === 'operational';
-    var colour = operational ? 0x63b8ff : 0x5d6b85;
+    var colour = operational ? 0x1273D4 : 0x8FA9C2;
 
     var body = new THREE.Mesh(
       new THREE.BoxGeometry(10, 7, 7),
       new THREE.MeshPhongMaterial({
-        color: colour, emissive: operational ? 0x123a66 : 0x14181f,
+        color: colour, emissive: operational ? 0x0A2E55 : 0x2A3542,
         shininess: 60
       })
     );
@@ -518,7 +521,7 @@ _TEMPLATE = r"""
       var panel = new THREE.Mesh(
         new THREE.BoxGeometry(13, 0.6, 5.5),
         new THREE.MeshPhongMaterial({
-          color: 0x1d4f8f, emissive: 0x0a1f3c, shininess: 90
+          color: 0x2A4F86, emissive: 0x0F2A4C, shininess: 90
         })
       );
       panel.position.copy(pos);
@@ -538,7 +541,7 @@ _TEMPLATE = r"""
     var cone = new THREE.Mesh(
       new THREE.ConeGeometry(R * 0.60, len, 40, 1, true),
       new THREE.MeshBasicMaterial({
-        color: 0x4fb0ff, transparent: true, opacity: 0.055,
+        color: 0x1273D4, transparent: true, opacity: 0.075,
         side: THREE.DoubleSide, depthWrite: false
       })
     );
@@ -554,11 +557,11 @@ _TEMPLATE = r"""
     scene.add(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(orbit),
       new THREE.LineBasicMaterial({
-        color: 0x2f6fb8, transparent: true, opacity: 0.22
+        color: 0x1273D4, transparent: true, opacity: 0.26
       })
     ));
 
-    flows.push({ from: pos, to: target, colour: 0x7cc4ff });
+    flows.push({ from: pos, to: target, colour: 0x1273D4 });
   });
 
   // ------------------------------------------------------- forecast location
@@ -568,7 +571,7 @@ _TEMPLATE = r"""
 
     var marker = new THREE.Mesh(
       new THREE.SphereGeometry(3.4, 16, 16),
-      new THREE.MeshBasicMaterial({ color: 0xff4d6d })
+      new THREE.MeshBasicMaterial({ color: 0xD63A45 })
     );
     marker.position.copy(selPos);
     marker.userData = {
@@ -586,7 +589,7 @@ _TEMPLATE = r"""
 
     // Expanding halo.
     var haloMat = new THREE.MeshBasicMaterial({
-      color: 0xff4d6d, transparent: true, opacity: 0.55, side: THREE.DoubleSide
+      color: 0xD63A45, transparent: true, opacity: 0.6, side: THREE.DoubleSide
     });
     var halo = new THREE.Mesh(new THREE.RingGeometry(4, 5.2, 40), haloMat);
     halo.position.copy(selPos);
@@ -598,7 +601,7 @@ _TEMPLATE = r"""
     var beam = new THREE.Mesh(
       new THREE.CylinderGeometry(0.5, 0.5, 34, 8),
       new THREE.MeshBasicMaterial({
-        color: 0xff4d6d, transparent: true, opacity: 0.32
+        color: 0xD63A45, transparent: true, opacity: 0.38
       })
     );
     beam.position.copy(selPos.clone().multiplyScalar(1.16));

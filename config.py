@@ -142,15 +142,19 @@ class Satellite:
 
 
 SATELLITES: Tuple[Satellite, ...] = (
-    Satellite("INSAT-3D", "ISRO", 82.0, 35786,
-              ("IMAGER (6 band)", "SOUNDER (19 channel)"), "operational",
-              "Primary IR/WV source. 4 km TIR, 30 min full disk."),
-    Satellite("INSAT-3DR", "ISRO", 74.0, 35786,
-              ("IMAGER (6 band)", "SOUNDER (19 channel)"), "operational",
-              "Staggered with 3D to give an effective 15 min cadence."),
     Satellite("INSAT-3DS", "ISRO", 82.0, 35786,
               ("IMAGER (6 band)", "SOUNDER (19 channel)"), "operational",
-              "Launched Feb 2024. Successor payload to INSAT-3D."),
+              "PRIMARY SOURCE for this system. Launched Feb 2024. "
+              "4 km TIR, 30 min full disk. IR1, IR2, WV, VIS and MIR are all "
+              "ingested."),
+    Satellite("INSAT-3DR", "ISRO", 74.0, 35786,
+              ("IMAGER (6 band)", "SOUNDER (19 channel)"), "operational",
+              "Secondary source. Staggered with 3DS to give an effective "
+              "15 min cadence over India."),
+    Satellite("INSAT-3D", "ISRO", 82.0, 35786,
+              ("IMAGER (6 band)", "SOUNDER (19 channel)"), "operational",
+              "Predecessor to 3DS, still operational. Archive value for "
+              "building a multi-season training set."),
     Satellite("KALPANA-1", "ISRO", 74.0, 35786,
               ("VHRR",), "decommissioned",
               "Retired 2017. Listed for archive reprocessing only."),
