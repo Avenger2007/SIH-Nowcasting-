@@ -363,7 +363,7 @@ def fetch_radar(station_code: str, product: str = "caz") -> SourceResult:
         )
 
     url = f"{RADAR_BASE}/{product}_{slug}.gif"
-    response = http_get(url, retries=2)
+    response = http_get(url, retries=1, timeout=12)
 
     if response is None or "image" not in response.headers.get("content-type", ""):
         return SourceResult(
@@ -446,10 +446,31 @@ def fetch_radar_mosaic(lat: float,
     contributing: List[Dict] = []
     attempted: List[Dict] = []
 
-    for candidate in candidates:
-        if len(contributing) >= max_stations:
-            break
-        result = fetch_radar(candidate["code"], product=product)
+    # Fetched CONCURRENTLY. Sequentially, with two retries and a 20 s timeout
+    # each, six unreachable stations took over three minutes to report that
+    # none of them answered - which stalls the whole nowcast whenever IMD is
+    # having a bad day, and IMD has bad days. The sites are independent, so
+    # there is no reason to wait for one before starting the next.
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=len(candidates)) as pool:
+        futures = [
+            (candidate, pool.submit(fetch_radar, candidate["code"], product))
+            for candidate in candidates
+        ]
+        results = []
+        for candidate, future in futures:
+            try:
+                results.append((candidate, future.result(timeout=45)))
+            except Exception as exc:
+                results.append((candidate, SourceResult(
+                    source=f"IMD DWR {candidate['code']}",
+                    status=SourceStatus.UNAVAILABLE,
+                    message=f"probe failed: {exc}",
+                )))
+
+    # Keep the nearest live sites, in distance order.
+    for candidate, result in results:
         attempted.append({
             "code": candidate["code"],
             "city": candidate["city"],
@@ -457,7 +478,8 @@ def fetch_radar_mosaic(lat: float,
             "status": result.status.value,
             "message": result.message,
         })
-        if result.status == SourceStatus.LIVE:
+        if (result.status == SourceStatus.LIVE
+                and len(contributing) < max_stations):
             contributing.append({
                 "code": candidate["code"],
                 "city": candidate["city"],
@@ -512,33 +534,69 @@ def fetch_radar_mosaic(lat: float,
     )
 
 
-def network_status(product: str = "caz", limit: Optional[int] = None) -> List[Dict]:
+def network_status(product: str = "caz",
+                   limit: Optional[int] = None,
+                   timeout: float = 4.0,
+                   deadline: float = 12.0) -> List[Dict]:
     """
-    Probe the whole DWR network and report which sites are publishing.
+    Probe the DWR network and report which sites are publishing.
 
     Used by the 3D globe to colour each radar site by live status, and by the
     diagnostics panel to show honestly how much of the network is reachable.
+
+    PERFORMANCE MATTERS HERE. This ran sequentially with retries and an 8 s
+    timeout, so when IMD was unreachable it took 97 seconds to report that 0
+    of 12 sites were live. Streamlit executes every tab body on every rerun,
+    so that blocked the entire application on each interaction and looked
+    exactly like a hung deployment.
+
+    It is now issued concurrently, with a single attempt, a short per-request
+    timeout and a hard overall deadline. A liveness probe should fail fast:
+    an unreachable site is itself the answer, and waiting longer does not make
+    it a better one. Any site not resolved within the deadline is reported as
+    not live rather than holding up the render.
     """
+    import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     stations = list(config.DWR_NETWORK)[:limit]
-    results = []
-    for station in stations:
+
+    def probe(station) -> bool:
         slug = STATION_SLUGS.get(station.code)
-        live = False
-        if slug:
-            response = http_get(
-                f"{RADAR_BASE}/{product}_{slug}.gif", retries=1, timeout=8
-            )
-            live = (
-                response is not None
-                and "image" in response.headers.get("content-type", "")
-            )
-        results.append({
+        if not slug:
+            return False
+        response = http_get(
+            f"{RADAR_BASE}/{product}_{slug}.gif",
+            retries=1, timeout=timeout,
+        )
+        return (
+            response is not None
+            and "image" in response.headers.get("content-type", "")
+        )
+
+    live_map: Dict[str, bool] = {}
+    started = time.perf_counter()
+
+    with ThreadPoolExecutor(max_workers=min(12, max(1, len(stations)))) as pool:
+        futures = {pool.submit(probe, s): s.code for s in stations}
+        for future in as_completed(futures, timeout=None):
+            code = futures[future]
+            try:
+                live_map[code] = bool(future.result(timeout=0.1))
+            except Exception:
+                live_map[code] = False
+            if time.perf_counter() - started > deadline:
+                break  # report what resolved; the rest default to not live
+
+    return [
+        {
             "code": station.code,
             "city": station.city,
             "lat": station.lat,
             "lon": station.lon,
             "band": station.band,
             "range_km": station.range_km,
-            "live": live,
-        })
-    return results
+            "live": live_map.get(station.code, False),
+        }
+        for station in stations
+    ]

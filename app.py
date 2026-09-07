@@ -383,11 +383,6 @@ with tab_now:
             "The model's probability is cross-examined against "
             "independent physical evidence.",
             eyebrow_text="Cross-check"), unsafe_allow_html=True)
-        st.caption(
-            "The model's probability is cross-checked against independent "
-            "physical evidence. When a learned model and the physics "
-            "disagree, that is exactly when a forecaster should look."
-        )
 
         report = consistency.check(features, probability, observation)
 
@@ -530,12 +525,6 @@ with tab_globe:
         "Doppler radar at its published coordinates. Hover any object "
         "for detail.",
         eyebrow_text="Network"), unsafe_allow_html=True)
-    st.caption(
-        "INSAT geostationary fleet at true sub-satellite longitudes, every IMD "
-        "Doppler radar at its published coordinates with range rings scaled to "
-        "actual range, and live data flow into the processing hub. "
-        "Hover any object for detail."
-    )
 
     with st.spinner("Probing the radar network…"):
         network = cached_network_status(limit=12)
@@ -652,10 +641,6 @@ with tab_data:
             "Every payload states where it came from. Simulated data "
             "can never be presented as an observation.",
             eyebrow_text="Sources"), unsafe_allow_html=True)
-        st.caption(
-            "Every payload states where it came from. A simulated field can "
-            "never be presented as an observation."
-        )
 
         rows = "".join(
             theme.source_row(

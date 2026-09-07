@@ -289,30 +289,30 @@ _TEMPLATE = r"""
   var globe = new THREE.Mesh(
     new THREE.SphereGeometry(R, 64, 64),
     new THREE.MeshPhongMaterial({
-      color: 0x7FB4E4, emissive: 0x18406E,
-      specular: 0xDCEEFF, shininess: 26,
-      transparent: true, opacity: 1.0
+      color: 0x2E6FA8, emissive: 0x08243F,
+      specular: 0x9FC6E8, shininess: 18,
+      transparent: false, opacity: 1.0
     })
   );
   scene.add(globe);
 
   // Fresnel atmosphere: bright at the limb, invisible face-on.
   var atmosphere = new THREE.Mesh(
-    new THREE.SphereGeometry(R * 1.035, 64, 64),
+    new THREE.SphereGeometry(R * 1.022, 64, 64),
     new THREE.ShaderMaterial({
       transparent: true, side: THREE.BackSide, depthWrite: false,
-      uniforms: { glow: { value: new THREE.Color(0xBFDDFA) } },
+      uniforms: { glow: { value: new THREE.Color(0x7FB8EC) } },
       vertexShader:
         'varying float rim;' +
         'void main(){' +
         '  vec3 n = normalize(normalMatrix * normal);' +
         '  vec3 e = normalize((modelViewMatrix * vec4(position,1.0)).xyz);' +
-        '  rim = pow(clamp(1.0 + dot(e, n), 0.0, 1.0), 3.4);' +
+        '  rim = pow(clamp(1.0 + dot(e, n), 0.0, 1.0), 4.2);' +
         '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);' +
         '}',
       fragmentShader:
         'uniform vec3 glow; varying float rim;' +
-        'void main(){ gl_FragColor = vec4(glow, rim * 0.80); }'
+        'void main(){ gl_FragColor = vec4(glow, rim * 0.42); }'
     })
   );
   scene.add(atmosphere);
@@ -320,7 +320,7 @@ _TEMPLATE = r"""
   // Graticule every 15 degrees.
   (function graticule() {
     var mat = new THREE.LineBasicMaterial({
-      color: 0xFFFFFF, transparent: true, opacity: 0.34
+      color: 0xCFE4F7, transparent: true, opacity: 0.26
     });
     var group = new THREE.Group();
     var lat, lon, pts, i;
@@ -344,7 +344,7 @@ _TEMPLATE = r"""
     for (var i = 0; i <= 200; i++) pts.push(toVec(0, -180 + i * 360 / 200, R * 1.004));
     scene.add(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.LineBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.58 })
+      new THREE.LineBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.5 })
     ));
   })();
 
@@ -400,13 +400,13 @@ _TEMPLATE = r"""
     for (i = 0; i <= 40; i++) pts.push(toVec(b.n - i * (b.n - b.s) / 40, b.w, R * 1.010));
     scene.add(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.LineBasicMaterial({ color: 0x0B4F94, transparent: true, opacity: 0.55 })
+      new THREE.LineBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.65 })
     ));
   })();
 
   // ------------------------------------------------------------------ lights
-  scene.add(new THREE.AmbientLight(0xFFFFFF, 0.95));
-  var key = new THREE.DirectionalLight(0xFFFFFF, 0.75);
+  scene.add(new THREE.AmbientLight(0xFFFFFF, 0.72));
+  var key = new THREE.DirectionalLight(0xFFFFFF, 0.9);
   key.position.set(300, 220, 420);
   scene.add(key);
   var rimLight = new THREE.DirectionalLight(0xAFD4F5, 0.45);
@@ -471,7 +471,7 @@ _TEMPLATE = r"""
     var dot = new THREE.Mesh(
       new THREE.SphereGeometry(0.62, 8, 8),
       new THREE.MeshBasicMaterial({
-        color: 0x0B4F94, transparent: true, opacity: 0.5
+        color: 0xE8F3FF, transparent: true, opacity: 0.6
       })
     );
     dot.position.copy(pos);
@@ -541,7 +541,7 @@ _TEMPLATE = r"""
     var cone = new THREE.Mesh(
       new THREE.ConeGeometry(R * 0.60, len, 40, 1, true),
       new THREE.MeshBasicMaterial({
-        color: 0x1273D4, transparent: true, opacity: 0.075,
+        color: 0x1273D4, transparent: true, opacity: 0.05,
         side: THREE.DoubleSide, depthWrite: false
       })
     );

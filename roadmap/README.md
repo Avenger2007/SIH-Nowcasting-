@@ -70,7 +70,7 @@ pytest -m live                       # include network tests
 
 | Engineering | Count |
 |---|---|
-| Tracked issues | 34 |
-| Resolved | 30 |
+| Tracked issues | 36 |
+| Resolved | 32 |
 | Open, each with a documented next step | 4 |
 | Automated tests | 66 (61 offline, 5 live) |

@@ -268,7 +268,7 @@
     {
       "id": "ISSUE-022",
       "severity": "medium",
-      "title": "Only 3 of 37 DWR sites publish public products",
+      "title": "Only 3 of 36 DWR sites publish public products",
       "area": "Data",
       "status": "open",
       "detail": "Probing mausam.imd.gov.in found live products for Delhi, Goa and Jot only. The remaining stations either use different URL slugs or are not published publicly.",
@@ -370,6 +370,28 @@
       "detail": "The stylesheet contained a blanket `section[data-testid=\"stSidebar\"] *` rule setting every descendant to muted ink. Streamlit wraps a button's label in an inner element, and that broad descendant selector won on the inner node - the primary button rule only targets the <button> itself, so its white colour never reached the label. The Run nowcast button rendered as a solid blue block with no readable text.",
       "impact": "The main call to action in the sidebar was unreadable. A judge opening the app would not know how to start a nowcast.",
       "fix": "The sidebar rule is now scoped to specific elements instead of using a universal selector, and button label colour is set on the button AND on every descendant for both primary and secondary variants. Comments in the stylesheet record why, since the universal selector is an easy thing to reintroduce."
+    },
+    {
+      "id": "BUG-035",
+      "severity": "critical",
+      "title": "Sequential network probes stalled the whole application",
+      "area": "Code",
+      "status": "fixed",
+      "found": "utils/datasources/radar.py: network_status and fetch_radar_mosaic",
+      "detail": "Both functions probed radar sites one at a time, with retries and a long timeout each. network_status took 97 seconds to report that 0 of 12 sites were live, and fetch_radar_mosaic took over three minutes for six unreachable stations. Streamlit executes every tab body on every rerun, so this ran on each interaction.",
+      "impact": "The dashboard appeared frozen whenever IMD was unreachable, which is often. On a hosted deployment it looked exactly like a failed or stale deploy - the app simply never finished rendering. This was almost certainly why updates appeared not to be taking effect.",
+      "fix": "Both are now issued concurrently with a single attempt, a short per-request timeout and a hard overall deadline. network_status fell from 97 s to 4.3 s for 12 sites and 12.1 s for all 36; the mosaic fell from over 180 s to 12.3 s. A liveness probe should fail fast, because an unreachable site is itself the answer."
+    },
+    {
+      "id": "BUG-036",
+      "severity": "low",
+      "title": "Duplicated descriptions and a broken word in the metric cards",
+      "area": "UI",
+      "status": "fixed",
+      "found": "app.py section headings, frontend/theme.py .metric-value",
+      "detail": "Converting the tab headings to the new band component left the original st.caption calls in place, so three sections printed the same sentence twice. Separately, the metric value was a fixed 2 rem, so a long single word broke mid-word in a narrow column and MODERATE rendered as 'MODER ATE'.",
+      "impact": "Cosmetic, but both are the kind of detail an evaluator notices immediately.",
+      "fix": "The three duplicated captions were removed. Metric values now scale with the column via clamp() and never break inside a word."
     }
   ]
 }

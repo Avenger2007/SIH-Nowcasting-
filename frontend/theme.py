@@ -268,8 +268,12 @@ def global_css() -> str:
   }}
   .metric-value {{
     font-family: var(--display);
-    font-size: 2.0rem; font-weight: 700; color: {BLUE_DARK};
-    line-height: 1; letter-spacing: -.03em;
+    /* Scales down in a narrow column so a long word such as MODERATE is not
+       broken mid-word, which rendered as "MODER ATE" at a fixed 2rem. */
+    font-size: clamp(1.15rem, 1.75vw, 2.0rem);
+    font-weight: 700; color: {BLUE_DARK};
+    line-height: 1.05; letter-spacing: -.03em;
+    word-break: keep-all; overflow-wrap: normal; hyphens: none;
   }}
   .metric-sub {{ font-size: .73rem; color: {INK_FAINT}; margin-top: 8px; }}
 
