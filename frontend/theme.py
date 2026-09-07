@@ -109,7 +109,7 @@ def global_css() -> str:
     return f"""
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@200;300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 
 <style>
   :root {{
@@ -118,7 +118,7 @@ def global_css() -> str:
     --ink-faint: {INK_FAINT};
     --blue: {BLUE};
     --hairline: {HAIRLINE};
-    --display: 'Barlow', 'Inter', -apple-system, 'Segoe UI', sans-serif;
+    --display: 'Inter Tight', Inter, -apple-system, 'Segoe UI', sans-serif;
     --body: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
   }}
 
@@ -134,8 +134,9 @@ def global_css() -> str:
   h1, h2, h3, h4, h5 {{
     font-family: var(--display) !important;
     color: {BLUE_DARK} !important;
-    font-weight: 700 !important;
-    letter-spacing: -.015em !important;
+    font-weight: 300 !important;
+    letter-spacing: -.030em !important;
+    line-height: 1.06 !important;
   }}
   p, li, span, label {{ color: {INK_SOFT}; }}
   a {{ color: {BLUE}; text-decoration: none; }}
@@ -159,10 +160,10 @@ def global_css() -> str:
 
   .display {{
     font-family: var(--display);
-    font-size: clamp(2.6rem, 6.2vw, 5.2rem);
-    font-weight: 800; line-height: .94;
-    letter-spacing: -.035em; text-transform: uppercase;
-    color: {BLUE_DARK}; margin: 0 0 26px;
+    font-size: clamp(2.5rem, 5.6vw, 4.35rem);
+    font-weight: 300; line-height: 1.02;
+    letter-spacing: -.035em;
+    color: {BLUE_DARK}; margin: 0 0 24px;
   }}
   .display-accent {{
     background: linear-gradient(100deg, {BLUE_DEEP} 0%, {BLUE} 40%, {INDIGO} 100%);
@@ -171,17 +172,18 @@ def global_css() -> str:
   }}
 
   .lede {{
-    font-family: var(--body);
-    font-size: 1.06rem; line-height: 1.72; color: {INK_SOFT};
-    max-width: 780px; font-weight: 400;
+    font-family: var(--display);
+    font-size: clamp(1.02rem, 1.35vw, 1.28rem);
+    line-height: 1.5; letter-spacing: -.02em;
+    color: {INK_SOFT}; max-width: 60ch; font-weight: 300;
   }}
 
   .section-h {{
     font-family: var(--display);
-    font-size: clamp(1.7rem, 3.1vw, 2.5rem);
-    font-weight: 700; line-height: 1.04;
-    letter-spacing: -.028em; text-transform: uppercase;
-    color: {BLUE_DARK}; margin: 0 0 14px;
+    font-size: clamp(1.85rem, 3.4vw, 3.08rem);
+    font-weight: 300; line-height: 1.02;
+    letter-spacing: -.032em;
+    color: {BLUE_DARK}; margin: 0 0 16px;
   }}
 
   .band {{ padding: 58px 0 8px; }}
@@ -269,10 +271,10 @@ def global_css() -> str:
   .metric-value {{
     font-family: var(--display);
     /* Scales down in a narrow column so a long word such as MODERATE is not
-       broken mid-word, which rendered as "MODER ATE" at a fixed 2rem. */
-    font-size: clamp(1.15rem, 1.75vw, 2.0rem);
-    font-weight: 700; color: {BLUE_DARK};
-    line-height: 1.05; letter-spacing: -.03em;
+       broken mid-word, which rendered as "MODER ATE" at a fixed size. */
+    font-size: clamp(1.2rem, 1.85vw, 2.1rem);
+    font-weight: 300; color: {BLUE_DARK};
+    line-height: 1.05; letter-spacing: -.035em;
     word-break: keep-all; overflow-wrap: normal; hyphens: none;
   }}
   .metric-sub {{ font-size: .73rem; color: {INK_FAINT}; margin-top: 8px; }}
@@ -282,7 +284,7 @@ def global_css() -> str:
   .stat-v {{
     font-family: var(--display);
     font-size: clamp(2.4rem, 4.6vw, 3.6rem);
-    font-weight: 300; line-height: .96; letter-spacing: -.035em;
+    font-weight: 200; line-height: .98; letter-spacing: -.038em;
     color: {BLUE_DARK};
   }}
   .stat-l {{
@@ -338,8 +340,8 @@ def global_css() -> str:
   }}
   .issue-title {{
     font-family: var(--display);
-    font-size: .95rem; font-weight: 600; color: {BLUE_DARK};
-    letter-spacing: -.01em;
+    font-size: 1.0rem; font-weight: 400; color: {BLUE_DARK};
+    letter-spacing: -.022em;
   }}
   .issue-detail {{ font-size: .78rem; color: {INK_SOFT}; margin-top: 9px; line-height: 1.66; }}
   .issue-fix {{ font-size: .77rem; color: #10603A; margin-top: 7px; line-height: 1.66; }}
@@ -359,8 +361,8 @@ def global_css() -> str:
   }}
   .capability-h {{
     font-family: var(--display);
-    font-size: 1.22rem; font-weight: 700; color: {BLUE_DARK};
-    text-transform: uppercase; letter-spacing: -.02em; margin-bottom: 10px;
+    font-size: 1.32rem; font-weight: 300; color: {BLUE_DARK};
+    letter-spacing: -.028em; line-height: 1.12; margin-bottom: 11px;
   }}
   .capability-b {{ font-size: .86rem; color: {INK_SOFT}; line-height: 1.72; }}
 
@@ -391,8 +393,8 @@ def global_css() -> str:
   }}
   .step-h {{
     font-family: var(--display);
-    font-size: 1.02rem; font-weight: 600; color: {BLUE_DARK};
-    text-transform: uppercase; letter-spacing: .01em; margin-bottom: 7px;
+    font-size: 1.16rem; font-weight: 300; color: {BLUE_DARK};
+    letter-spacing: -.026em; margin-bottom: 8px;
   }}
   .step-b {{ font-size: .85rem; color: {INK_SOFT}; line-height: 1.72; }}
 
@@ -401,9 +403,8 @@ def global_css() -> str:
   }}
   .leg-h {{
     font-family: var(--display);
-    font-size: 1.06rem; font-weight: 700; color: {BLUE_DARK};
-    text-transform: uppercase; letter-spacing: -.015em;
-    margin: 12px 0 9px;
+    font-size: 1.24rem; font-weight: 300; color: {BLUE_DARK};
+    letter-spacing: -.028em; margin: 13px 0 10px;
   }}
   .leg-b {{ font-size: .84rem; color: {INK_SOFT}; line-height: 1.7; }}
 
@@ -414,8 +415,8 @@ def global_css() -> str:
   }}
   .verdict-h {{
     font-family: var(--display);
-    font-size: 1.06rem; font-weight: 700; text-transform: uppercase;
-    letter-spacing: -.015em; margin-bottom: 12px; color: {BLUE_DARK};
+    font-size: 1.28rem; font-weight: 300;
+    letter-spacing: -.028em; margin-bottom: 13px; color: {BLUE_DARK};
   }}
   .verdict-b {{ font-size: .86rem; color: {INK_SOFT}; line-height: 1.74; }}
 

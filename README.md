@@ -241,7 +241,7 @@ tests/test_pipeline.py     66 tests; regression tests name the bug they guard
 
 ## Engineering register
 
-**36 issues tracked · 32 resolved · 4 open with documented next steps.**
+**37 issues tracked · 33 resolved · 4 open with documented next steps.**
 
 Every resolved bug has a regression test named after it. The register is
 rendered live inside the dashboard, open items included — including the bugs

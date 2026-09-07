@@ -392,6 +392,17 @@
       "detail": "Converting the tab headings to the new band component left the original st.caption calls in place, so three sections printed the same sentence twice. Separately, the metric value was a fixed 2 rem, so a long single word broke mid-word in a narrow column and MODERATE rendered as 'MODER ATE'.",
       "impact": "Cosmetic, but both are the kind of detail an evaluator notices immediately.",
       "fix": "The three duplicated captions were removed. Metric values now scale with the column via clamp() and never break inside a word."
+    },
+    {
+      "id": "BUG-037",
+      "severity": "high",
+      "title": "Hero animation froze on its first frame when RAF was throttled",
+      "area": "UI",
+      "status": "fixed",
+      "found": "frontend/hero.py render loop",
+      "detail": "The scene advanced time by accumulating requestAnimationFrame deltas. When the component is embedded in an iframe, or the window is not foregrounded, RAF can be throttled to a standstill - the clock then stops permanently and the sky freezes on a single static frame. Measured directly: the exposed scene clock sat at exactly 0.000 s across eighteen seconds. The same throttling stalled the JavaScript tween library, leaving the headline at opacity 0, which would have shipped as a blank hero.",
+      "impact": "The centrepiece of the landing page would have been a still image with no text on it.",
+      "fix": "Scene time is now read from the wall clock rather than accumulated from frame deltas, so a stalled loop resumes at the correct point instead of freezing. A timer backstop drives a draw whenever RAF has not run for 200 ms. Text reveals were moved to CSS keyframes, which are compositor-driven and complete regardless. Verified after the fix: the clock advances 6.4 to 14.4 to 21.4 s and a lightning strike was captured mid-flash at 0.745."
     }
   ]
 }

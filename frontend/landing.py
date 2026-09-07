@@ -18,6 +18,7 @@ from typing import Dict, List, Optional
 
 import config
 
+from . import hero as hero_view
 from . import theme
 
 # --------------------------------------------------------------------------
@@ -38,8 +39,8 @@ PROBLEM_STATEMENT = {
 }
 
 WHY_IT_MATTERS = [
-    ("India's deadliest weather hazard",
-     "Lightning kills more people each year than floods or cyclones. The "
+    ("More deaths than floods or cyclones",
+     "Lightning kills more people in India each year than either. The "
      "deaths are concentrated among farmers, herders and outdoor workers - "
      "people who are outside, away from shelter, and often without signal."),
     ("The window is minutes, not days",
@@ -161,17 +162,31 @@ def render(st, live_legs: Optional[List[str]] = None,
     counts = _issue_counts()
 
     # ================= hero =================
-    st.markdown(
-        theme.hero(
-            "Nowcasting<br>thunderstorms",
-            "A 0 to 6 hour thunderstorm and lightning nowcasting system for "
-            "India, fusing INSAT satellite imagery, Doppler weather radar, "
-            "lightning detection and numerical model output into a single "
-            "calibrated probability.",
-            eyebrow_text=f"Smart India Hackathon 2026 &nbsp;&mdash;&nbsp; "
-                         f"{PROBLEM_STATEMENT['id']}",
+    # A live storm, not a picture of one. Generated in a shader, so there is
+    # no asset to download and no blank first frame.
+    import streamlit.components.v1 as components
+
+    components.html(
+        hero_view.build_hero_html(
+            headline="Nowcasting the storm<br>before it breaks",
+            tagline=(
+                "A 0 to 6 hour thunderstorm and lightning nowcast for India, "
+                "fusing INSAT satellite imagery, Doppler weather radar, "
+                "lightning detection and numerical model output into a single "
+                "calibrated probability."
+            ),
+            eyebrow=f"Smart India Hackathon 2026 — {PROBLEM_STATEMENT['id']}",
+            stats=[
+                {"value": "0–6", "label": "Hour horizon"},
+                {"value": f"{len(live_legs)}/{total_legs}" if has_run
+                          else f"—/{total_legs}", "label": "Live data legs"},
+                {"value": "88", "label": "Model features"},
+                {"value": f"{len(config.DWR_NETWORK)}", "label": "Radar sites"},
+            ],
+            height=620,
         ),
-        unsafe_allow_html=True,
+        height=632,
+        scrolling=False,
     )
 
     if not has_run:
@@ -183,23 +198,10 @@ def render(st, live_legs: Optional[List[str]] = None,
             unsafe_allow_html=True,
         )
 
-    # ================= key figures =================
-    st.write("")
-    cols = st.columns(4)
-    figures = [
-        ("0–6", "Hour forecast horizon"),
-        (f"{len(live_legs)}/{total_legs}" if has_run else f"—/{total_legs}",
-         "Live data legs"),
-        ("88", "Model features"),
-        (f"{len(config.DWR_NETWORK)}", "Radar sites mapped"),
-    ]
-    for col, (value, label) in zip(cols, figures):
-        col.markdown(theme.stat(value, label), unsafe_allow_html=True)
-
     # ================= the problem =================
     st.markdown(
         theme.section(
-            "Why this matters",
+            "Lightning is India's deadliest weather hazard",
             eyebrow_text="The problem",
         ),
         unsafe_allow_html=True,
@@ -217,9 +219,10 @@ def render(st, live_legs: Optional[List[str]] = None,
     # ================= problem statement =================
     st.markdown(
         theme.section(
-            "The brief",
-            "Four data sources are named explicitly in the statement. A "
-            "submission that skips any of them has not answered the question.",
+            "Four sources are named. All four are implemented.",
+            "The statement asks for multiple radars, satellite, lightning and "
+            "model data. A submission that skips any of them has not answered "
+            "the question.",
             eyebrow_text="Problem statement",
         ),
         unsafe_allow_html=True,
@@ -240,8 +243,8 @@ def render(st, live_legs: Optional[List[str]] = None,
     # ================= capabilities =================
     st.markdown(
         theme.section(
-            "How it works",
-            "Six stages, each independently inspectable in the tabs above.",
+            "Six stages, from orbit to a bulletin",
+            "Each one is independently inspectable in the tabs above.",
             eyebrow_text="Approach",
         ),
         unsafe_allow_html=True,
@@ -259,7 +262,7 @@ def render(st, live_legs: Optional[List[str]] = None,
     # ================= data legs =================
     st.markdown(
         theme.section(
-            "The four data legs",
+            "Where the numbers come from",
             "Live status of every source named in the problem statement.",
             eyebrow_text="Data",
         ),
@@ -296,7 +299,7 @@ def render(st, live_legs: Optional[List[str]] = None,
     # ================= pipeline =================
     st.markdown(
         theme.section(
-            "Step by step",
+            "What happens when you press run",
             eyebrow_text="Pipeline",
         ),
         unsafe_allow_html=True,
@@ -311,8 +314,8 @@ def render(st, live_legs: Optional[List[str]] = None,
     # ================= honest status =================
     st.markdown(
         theme.section(
-            "What we claim",
-            "And, just as importantly, what we do not.",
+            "What we claim, and what we do not",
+            "The second half matters more than the first.",
             eyebrow_text="Status",
         ),
         unsafe_allow_html=True,
