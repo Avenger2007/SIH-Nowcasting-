@@ -359,6 +359,17 @@
       "detail": "The landing page's APPROACH constant resolved theme colours at MODULE level (theme.BLUE). That runs during import, so any mismatch between the page and the palette raised AttributeError before Streamlit rendered anything at all. A deployment served a stale theme module alongside the new landing page and the whole dashboard showed a traceback instead of the app.",
       "impact": "Total outage from a cosmetic value. The repository code was self-consistent; only the deployed container was stale, but the failure mode was fatal rather than degraded.",
       "fix": "Presentation constants now hold SEMANTIC colour names resolved at render time by _tint(), which falls back to a literal. A palette gap now costs one swatch instead of the application. Modules inside the frontend package also import theme relatively, so no same-named package on sys.path can shadow it. Three regression tests were added: every theme reference in app.py, landing.py and globe.py must resolve; presentation constants must not hold resolved colours; and the landing page must render against a deliberately stale palette."
+    },
+    {
+      "id": "BUG-034",
+      "severity": "medium",
+      "title": "Primary button label invisible against its filled background",
+      "area": "UI",
+      "status": "fixed",
+      "found": "frontend/theme.py sidebar rules",
+      "detail": "The stylesheet contained a blanket `section[data-testid=\"stSidebar\"] *` rule setting every descendant to muted ink. Streamlit wraps a button's label in an inner element, and that broad descendant selector won on the inner node - the primary button rule only targets the <button> itself, so its white colour never reached the label. The Run nowcast button rendered as a solid blue block with no readable text.",
+      "impact": "The main call to action in the sidebar was unreadable. A judge opening the app would not know how to start a nowcast.",
+      "fix": "The sidebar rule is now scoped to specific elements instead of using a universal selector, and button label colour is set on the button AND on every descendant for both primary and secondary variants. Comments in the stylesheet record why, since the universal selector is an easy thing to reintroduce."
     }
   ]
 }

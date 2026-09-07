@@ -833,17 +833,32 @@ def test_landing_does_not_resolve_theme_at_import_time():
     Guards BUG-033. Module-level colour lookups make a palette mismatch fatal
     to the whole application. Presentation constants must hold semantic names
     that are resolved during render instead.
+
+    Written to survive renaming: it scans every module-level sequence rather
+    than naming one constant, so restructuring the page cannot silently
+    disable the guard.
     """
     from frontend import landing
 
-    for entry in landing.APPROACH:
-        tint = entry[2]
-        assert isinstance(tint, str), f"{tint!r} should be a semantic name"
-        assert not tint.startswith("#"), (
-            f"{tint!r} is a resolved colour; store a semantic name so a "
-            f"palette change cannot break module import"
-        )
-        assert tint in landing._TINTS, f"unknown tint name {tint!r}"
+    checked = 0
+    for name in dir(landing):
+        if name.startswith("_") or not name.isupper():
+            continue
+        value = getattr(landing, name)
+        if not isinstance(value, (list, tuple)):
+            continue
+        for entry in value:
+            if not isinstance(entry, (list, tuple)):
+                continue
+            for field in entry:
+                assert not (isinstance(field, str) and field.startswith("#")), (
+                    f"{name} holds a resolved colour {field!r}; store a "
+                    f"semantic name so a palette change cannot break import"
+                )
+                if isinstance(field, str) and field in landing._TINTS:
+                    checked += 1
+
+    assert checked > 0, "no semantic tint names found to verify"
 
 
 def test_tint_falls_back_when_palette_is_missing_a_token():

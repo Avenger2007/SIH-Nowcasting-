@@ -379,7 +379,10 @@ with tab_now:
             )
 
         # Physical consistency --------------------------------------------
-        st.markdown("#### Physical consistency check")
+        st.markdown(theme.section("Physical consistency check",
+            "The model's probability is cross-examined against "
+            "independent physical evidence.",
+            eyebrow_text="Cross-check"), unsafe_allow_html=True)
         st.caption(
             "The model's probability is cross-checked against independent "
             "physical evidence. When a learned model and the physics "
@@ -425,7 +428,8 @@ with tab_now:
         )
 
         # Imagery ---------------------------------------------------------
-        st.markdown("#### Satellite analysis")
+        st.markdown(theme.section("Satellite analysis",
+            eyebrow_text="Imagery"), unsafe_allow_html=True)
 
         show_boundaries = st.checkbox(
             "Overlay official state boundaries (ISRO Bhuvan)",
@@ -479,7 +483,8 @@ with tab_now:
             )
 
         # Lead-time series -------------------------------------------------
-        st.markdown("#### Convective trend")
+        st.markdown(theme.section("Convective trend",
+            eyebrow_text="Environment"), unsafe_allow_html=True)
         nwp_result = observation.sources.get("nwp")
         if nwp_result and nwp_result.ok and nwp_result.data.get("series"):
             series = nwp_result.data["series"]
@@ -520,7 +525,11 @@ with tab_now:
 # --------------------------------------------------------------------------
 
 with tab_globe:
-    st.markdown("#### Indian observation network")
+    st.markdown(theme.section("Indian observation network",
+        "INSAT fleet at true sub-satellite longitudes and every IMD "
+        "Doppler radar at its published coordinates. Hover any object "
+        "for detail.",
+        eyebrow_text="Network"), unsafe_allow_html=True)
     st.caption(
         "INSAT geostationary fleet at true sub-satellite longitudes, every IMD "
         "Doppler radar at its published coordinates with range rings scaled to "
@@ -587,7 +596,8 @@ with tab_globe:
             "Control rather than the official Indian boundary."
         )
 
-    st.markdown("#### Fleet and network inventory")
+    st.markdown(theme.section("Fleet and network inventory",
+        eyebrow_text="Inventory"), unsafe_allow_html=True)
     inv_left, inv_right = st.columns(2)
 
     with inv_left:
@@ -638,7 +648,10 @@ with tab_data:
     if not observation:
         st.info("Run a nowcast to populate the data-source panel.")
     else:
-        st.markdown("#### Provenance")
+        st.markdown(theme.section("Provenance",
+            "Every payload states where it came from. Simulated data "
+            "can never be presented as an observation.",
+            eyebrow_text="Sources"), unsafe_allow_html=True)
         st.caption(
             "Every payload states where it came from. A simulated field can "
             "never be presented as an observation."
@@ -655,7 +668,8 @@ with tab_data:
                     unsafe_allow_html=True)
 
         # Feature groups.
-        st.markdown("#### Feature values by source")
+        st.markdown(theme.section("Feature values by source",
+            eyebrow_text="Features"), unsafe_allow_html=True)
         if result:
             features = result["features"]
             for group, names in feat.FEATURE_GROUPS.items():
@@ -684,7 +698,8 @@ with tab_model:
     else:
         card = predictor.card
 
-        st.markdown("#### Model card")
+        st.markdown(theme.section("Model card",
+            eyebrow_text="Provenance"), unsafe_allow_html=True)
         cols = st.columns(4)
         cols[0].markdown(theme.metric(
             "Training data", card.training_data.upper(),
@@ -710,7 +725,9 @@ with tab_model:
             )
 
         # Verification.
-        st.markdown("#### Verification on the held-out test set")
+        st.markdown(theme.section("Verification",
+            "Measured on a held-out temporal split.",
+            eyebrow_text="Skill"), unsafe_allow_html=True)
         validation = card.validation or {}
 
         if "contingency" in validation:
@@ -800,7 +817,8 @@ with tab_model:
             st.info(validation.get("warning", "No verification metrics."))
 
         # Feature importance.
-        st.markdown("#### Feature importance")
+        st.markdown(theme.section("Feature importance",
+            eyebrow_text="Explainability"), unsafe_allow_html=True)
         try:
             importance = predictor.feature_importance(top_n=18)
             names = list(importance.keys())[::-1]
@@ -825,7 +843,8 @@ with tab_model:
 
         # Out-of-distribution.
         if prediction and prediction["out_of_distribution"]:
-            st.markdown("#### Out-of-distribution inputs")
+            st.markdown(theme.section("Out-of-distribution inputs",
+                eyebrow_text="Warnings"), unsafe_allow_html=True)
             st.caption(
                 "These inputs sit far outside the range the model was trained "
                 "on, so its output for them is extrapolation. This check is "
