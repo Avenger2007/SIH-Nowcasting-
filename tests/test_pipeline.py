@@ -1096,3 +1096,95 @@ def test_immersive_globe_carries_the_world_texture():
         sections=[{"title": "Panel", "body": "Body."}],
     )
     assert '"world": ""' in bare
+
+
+# --------------------------------------------------------------------------
+# Surviving a half-updated deployment
+# --------------------------------------------------------------------------
+
+def test_call_supported_drops_arguments_an_old_callee_cannot_take():
+    """
+    The exact shape of the Streamlit Cloud failure: a new caller, an old
+    callee, and a keyword argument that only exists in the new one.
+    """
+    from utils import compat
+
+    def old_render(st, boundary_uri=None):
+        return ("rendered", boundary_uri)
+
+    result, dropped = compat.call_supported(
+        old_render, "st", boundary_uri="bhuvan", world_uri="world",
+    )
+
+    assert result == ("rendered", "bhuvan"), "the page must still render"
+    assert dropped == ["world_uri"]
+
+    message = compat.stale_module_warning(dropped, "frontend/landing.py")
+    assert "world_uri" in message
+    assert "Reboot" in message, "the reader needs to be told what to do"
+
+
+def test_call_supported_is_transparent_when_the_callee_is_current():
+    """On a healthy deployment nothing is dropped and nothing is changed."""
+    from utils import compat
+
+    def new_render(st, boundary_uri=None, world_uri=None):
+        return (st, boundary_uri, world_uri)
+
+    result, dropped = compat.call_supported(
+        new_render, "st", boundary_uri="a", world_uri="b",
+    )
+
+    assert result == ("st", "a", "b")
+    assert dropped == []
+
+
+def test_call_supported_passes_everything_to_a_kwargs_callee():
+    """A **kwargs signature accepts anything, so nothing may be withheld."""
+    from utils import compat
+
+    def flexible(**kwargs):
+        return kwargs
+
+    result, dropped = compat.call_supported(flexible, alpha=1, beta=2)
+
+    assert result == {"alpha": 1, "beta": 2}
+    assert dropped == []
+
+
+def test_render_entry_points_accept_every_argument_the_app_passes():
+    """
+    Caller and callee must agree in the repository itself.
+
+    call_supported keeps a stale *container* from crashing; it must never be
+    the reason a genuine mismatch committed here goes unnoticed.
+    """
+    import inspect
+
+    from frontend import globe as globe_view, immersive, landing
+    from utils import compat
+
+    expected = {
+        landing.render: [
+            "live_legs", "total_legs", "has_run", "immersive_mode",
+            "boundary_uri", "world_uri", "radars",
+        ],
+        immersive.build_immersive_html: [
+            "sections", "boundary_uri", "world_uri", "radars",
+            "satellites", "height",
+        ],
+        globe_view.build_globe_html: [
+            "selected_city", "network_status", "source_status",
+            "boundary", "world_uri", "height",
+        ],
+    }
+
+    for func, names in expected.items():
+        missing = compat.unsupported_kwargs(func, dict.fromkeys(names))
+        assert not missing, (
+            f"{func.__module__}.{func.__name__} cannot accept {missing}, "
+            f"which app.py passes"
+        )
+        # And guard the reverse: an argument silently renamed would still
+        # pass the check above only if the old name were kept.
+        assert "world_uri" in inspect.signature(func).parameters

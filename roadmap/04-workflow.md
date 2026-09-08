@@ -231,4 +231,4 @@ window, and the data-coverage caveat.
 | **3D Network** | Interactive globe: INSAT fleet, Doppler network with range rings, live data flow |
 | **Data sources** | Per-leg provenance with status and latency; all 88 feature values grouped by source |
 | **Model & verification** | Model card, POD/FAR/CSI/HSS, ROC and reliability curves, feature importance, out-of-distribution table |
-| **Engineering register** | All 44 tracked issues, filterable, with resolutions and next steps |
+| **Engineering register** | All 45 tracked issues, filterable, with resolutions and next steps |

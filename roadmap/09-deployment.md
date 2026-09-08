@@ -87,6 +87,19 @@ comfortably, but avoid raising `GRID_SIZE` much above 256.
 **Cold start.** Apps sleep after inactivity and take ~30 s to wake. Open the
 URL a few minutes before presenting.
 
+**Reboot after a push that changes a module signature.** Streamlit re-runs
+`app.py` on every interaction, but `from frontend import landing` returns
+whatever is already in `sys.modules`. A container that pulls a new commit
+without restarting its Python process runs the new entry script against the
+old imported modules, and any argument added to both in the same commit
+raises a `TypeError`. The repository is fine; the process is not.
+
+Use **Manage app → Reboot** after any push that touches a function signature.
+The app degrades rather than crashing if you forget — `utils/compat.py` drops
+arguments the loaded module cannot accept and prints a notice saying to
+reboot — but the page will be missing whatever that argument added until you
+do.
+
 ---
 
 ## Option B · Docker
@@ -260,7 +273,7 @@ schtasks /create /tn "INSATCollector" `
 
 - [ ] Frame collector running for at least an hour — confirms cloud motion
 - [ ] `python scripts/live_test.py Delhi` shows 3+ legs live
-- [ ] `pytest` passes (68 offline)
+- [ ] `pytest` passes (72 offline)
 - [ ] App opened once to warm caches and wake the host
 - [ ] A second city tried, to show it is not hardcoded
 - [ ] Offline fallback understood, in case venue Wi-Fi fails

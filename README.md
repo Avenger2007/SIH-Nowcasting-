@@ -187,7 +187,7 @@ python scripts/live_test.py Delhi
 python scripts/collect_frames.py --watch --interval 900
 
 # Tests
-pytest                # 68 offline
+pytest                # 72 offline
 pytest -m live        # 5 against live endpoints
 ```
 
@@ -241,7 +241,7 @@ tests/test_pipeline.py     68 tests; regression tests name the bug they guard
 
 ## Engineering register
 
-**44 issues tracked · 40 resolved · 4 open with documented next steps.**
+**45 issues tracked · 41 resolved · 4 open with documented next steps.**
 
 Every resolved bug has a regression test named after it. The register is
 rendered live inside the dashboard, open items included — including the bugs

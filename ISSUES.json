@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-08T05:14:12+00:00",
+  "generated": "2026-09-08T05:30:50+00:00",
   "description": "Bug and issue register for the SIH 2026 nowcasting system. Rendered live in the dashboard's Diagnostics panel.",
   "issues": [
     {
@@ -480,6 +480,17 @@
       "detail": "Which side to darken was computed as round(scrollTop / frameHeight) % 2. That assumes each panel is exactly one frame tall and that the scroll ends on a panel boundary. It ends clamped a little past one, so the sixth panel rounded up to index 6, the parity flipped, and the wash was drawn behind the globe instead of behind the copy.",
       "impact": "The closing panel - the one stating what the project does and does not claim - was the hardest to read on the page.",
       "fix": "The side is read off the panel currently under the middle of the frame, using that panel's own class, so no arithmetic can drift out of step with the layout."
+    },
+    {
+      "id": "BUG-045",
+      "severity": "critical",
+      "title": "A half-updated container crashed the home page with a TypeError",
+      "area": "Deployment",
+      "status": "fixed",
+      "found": "app.py, frontend/landing.py",
+      "detail": "Streamlit re-executes the entry script on every run, but `from frontend import landing` returns whatever is already in sys.modules. A hosted container that pulled a new commit without restarting its Python process therefore ran the new app.py against the previously imported frontend modules. A keyword argument added in one commit to both caller and callee then raised TypeError: render() got an unexpected keyword argument 'world_uri'. The repository was consistent; only the running process was not. This is the same root cause as BUG-033.",
+      "impact": "A traceback on the landing page - the one page whose entire purpose is to be opened by someone else. A reboot cleared it, but only after somebody noticed.",
+      "fix": "The three component call sites go through utils.compat.call_supported, which drops keyword arguments the target cannot accept and reports them. A stale container now renders the previous version of the page and states plainly that the server is running older code and needs a reboot, instead of failing. A test asserts caller and callee agree in the repository itself, so the shim can never hide a real mismatch committed here."
     }
   ]
 }

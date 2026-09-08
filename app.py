@@ -30,7 +30,7 @@ import config
 from frontend import globe as globe_view
 from frontend import landing
 from frontend import theme
-from utils import consistency
+from utils import compat, consistency
 from utils import features as feat
 from utils import llm_alert, metrics as vmetrics, optical_flow
 from utils.calibration import kelvin_to_counts
@@ -359,7 +359,10 @@ tab_home, tab_now, tab_globe, tab_data, tab_model, tab_issues = st.tabs([
 
 with tab_home:
     _boundary = cached_boundary("state_filled")
-    landing.render(
+    # Called through call_supported so a container running stale frontend
+    # modules degrades to the older page instead of showing a traceback here.
+    _, _dropped = compat.call_supported(
+        landing.render,
         st,
         live_legs=observation.live_legs if observation else [],
         total_legs=len(fusion.REQUIRED_LEGS),
@@ -370,6 +373,8 @@ with tab_home:
         world_uri=worldmap.texture_data_uri(),
         radars=cached_network_status(limit=12),
     )
+    if _dropped:
+        st.warning(compat.stale_module_warning(_dropped, "frontend/landing.py"))
 
 
 # --------------------------------------------------------------------------
@@ -630,18 +635,23 @@ with tab_globe:
             "citation": boundary_result.citation,
         }
 
+    _globe_html, _dropped = compat.call_supported(
+        globe_view.build_globe_html,
+        selected_city=selected,
+        network_status=network,
+        boundary=boundary_payload,
+        world_uri=worldmap.texture_data_uri(),
+        source_status={
+            leg: r.status.value
+            for leg, r in (observation.sources.items() if observation else [])
+        },
+        height=680,
+    )
+    if _dropped:
+        st.warning(compat.stale_module_warning(_dropped, "frontend/globe.py"))
+
     components.html(
-        globe_view.build_globe_html(
-            selected_city=selected,
-            network_status=network,
-            boundary=boundary_payload,
-            world_uri=worldmap.texture_data_uri(),
-            source_status={
-                leg: r.status.value
-                for leg, r in (observation.sources.items() if observation else [])
-            },
-            height=680,
-        ),
+        _globe_html,
         height=690,
         scrolling=False,
     )

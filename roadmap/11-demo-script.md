@@ -127,7 +127,7 @@ problem:
 **Show:** Engineering register tab, filtered to open issues.
 
 **Say:**
-> Forty-four tracked issues. Forty resolved, four open, each with a
+> Forty-five tracked issues. Forty-one resolved, four open, each with a
 > next step. This includes bugs we found in our own work — an integer overflow
 > that made radar read terrain as rainfall, and a projection sign error that
 > had us analysing the southern Indian Ocean and calling it India.

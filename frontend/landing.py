@@ -17,6 +17,7 @@ import json
 from typing import Dict, List, Optional
 
 import config
+from utils import compat
 
 from . import hero as hero_view
 from . import immersive
@@ -283,23 +284,25 @@ def render(st, live_legs: Optional[List[str]] = None,
     if immersive_mode:
         import streamlit.components.v1 as components
 
-        components.html(
-            immersive.build_immersive_html(
-                sections=immersive_sections(live_legs, total_legs,
-                                            has_run, counts),
-                boundary_uri=boundary_uri,
-                world_uri=world_uri,
-                radars=radars or [],
-                satellites=[
-                    {"name": s.name, "lon": s.longitude, "status": s.status}
-                    for s in config.SATELLITES
-                    if s.altitude_km > 30000 and s.status == "operational"
-                ],
-                height=780,
-            ),
-            height=790,
-            scrolling=False,
+        html, dropped = compat.call_supported(
+            immersive.build_immersive_html,
+            sections=immersive_sections(live_legs, total_legs,
+                                        has_run, counts),
+            boundary_uri=boundary_uri,
+            world_uri=world_uri,
+            radars=radars or [],
+            satellites=[
+                {"name": s.name, "lon": s.longitude, "status": s.status}
+                for s in config.SATELLITES
+                if s.altitude_km > 30000 and s.status == "operational"
+            ],
+            height=780,
         )
+        if dropped:
+            st.warning(compat.stale_module_warning(
+                dropped, "frontend/immersive.py"))
+
+        components.html(html, height=790, scrolling=False)
         return
 
     # ================= hero =================
