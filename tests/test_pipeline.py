@@ -16,6 +16,7 @@ Network-dependent tests are marked ``live`` and skipped by default:
 from __future__ import annotations
 
 import json
+import pathlib
 
 from datetime import datetime, timedelta, timezone
 
@@ -957,3 +958,141 @@ def test_immersive_html_embeds_its_payload():
     assert "__HEIGHT__" not in html, "height placeholder was not substituted"
     # The scene must not depend on requestAnimationFrame alone; see BUG-037.
     assert "setInterval" in html
+
+
+# --------------------------------------------------------------------------
+# World base map
+# --------------------------------------------------------------------------
+
+def test_world_texture_is_committed_and_equirectangular():
+    """
+    The globe's base map must ship with the repository.
+
+    It is a build artefact rather than a runtime fetch, so a deployment with
+    no outbound network still renders a real Earth instead of a blue ball.
+    A 2:1 aspect ratio is what makes the equirectangular UV mapping correct;
+    any other shape would smear every coastline.
+    """
+    from PIL import Image
+
+    from utils.datasources import worldmap
+
+    assert worldmap.TEXTURE_PATH.exists(), (
+        "data/world/earth_texture.png is missing. Rebuild it with "
+        "`python tools/build_world_atlas.py`."
+    )
+
+    with Image.open(worldmap.TEXTURE_PATH) as image:
+        width, height = image.size
+
+    assert width == 2 * height, (
+        f"equirectangular textures are 2:1, got {width}x{height}"
+    )
+    assert width >= 2048, "too coarse for country boundaries to read on a globe"
+
+
+def test_world_texture_reports_itself_as_a_source():
+    """The Data sources tab must be able to say where the base map came from."""
+    from utils.datasources import worldmap
+
+    result = worldmap.fetch_world_texture()
+
+    assert result.ok
+    assert result.data["data_uri"].startswith("data:image/png;base64,")
+    assert "Natural Earth" in result.citation
+    # The claim that India is not taken from this layer is the whole point.
+    assert "Bhuvan" in result.citation
+
+
+def test_no_foreign_source_draws_an_indian_boundary():
+    """
+    India, Pakistan and China are never drawn from Natural Earth.
+
+    Natural Earth, OpenStreetMap and GADM all depict the Line of Control
+    rather than the boundary the Government of India recognises, and those
+    three polygons are the ones that run along it. India is drawn instead
+    from the ISRO Bhuvan (Survey of India) raster, on the layer above.
+
+    This guards the policy at the only place it can be enforced - the build
+    - because once the texture is rendered a wrong line is unrecoverable.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "build_world_atlas",
+        pathlib.Path(__file__).resolve().parents[1]
+        / "tools" / "build_world_atlas.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.EXCLUDED_FROM_BORDERS == {"India", "Pakistan", "China"}
+
+    from utils.datasources import worldmap
+    assert set(worldmap.UNBORDERED) == module.EXCLUDED_FROM_BORDERS, (
+        "worldmap and the build script disagree about which countries are "
+        "left unbordered, so the app would describe a map it is not drawing"
+    )
+
+
+def test_antimeridian_wrap_is_detected_per_segment_not_by_total_span():
+    """
+    Antarctica spans a full 360 degrees without crossing the dateline.
+
+    An earlier version flagged any ring spanning more than 180 degrees as
+    wrapped and drew it twice, which smeared Antarctica and the whole
+    Afro-Eurasian landmass into bands right across the map. A wrap is a jump
+    between CONSECUTIVE vertices, not a wide total extent.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "build_world_atlas",
+        pathlib.Path(__file__).resolve().parents[1]
+        / "tools" / "build_world_atlas.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    drawn = []
+
+    class Recorder:
+        def polygon(self, points, fill=None):
+            drawn.append(points)
+
+        def line(self, points, fill=None, width=0, joint=None):
+            pass
+
+    # Antarctica, as Natural Earth stores it: a coastline running the full
+    # 360 degrees, then closing along the bottom edge from +180 to -180. That
+    # last step is a whole turn between consecutive vertices, but it crosses
+    # the pole rather than the dateline, so the ring is drawn once.
+    circumpolar = ([(lon, -70.0) for lon in range(-180, 181, 10)]
+                   + [(180.0, -90.0), (-180.0, -90.0)])
+    module.draw_ring(Recorder(), circumpolar, 360, 180, fill=(1, 2, 3))
+    assert len(drawn) == 1, "a circumpolar ring must not be repeated"
+
+    # Split by the dateline: consecutive vertices jump the full turn.
+    drawn.clear()
+    split = [(178.0, 10.0), (-179.0, 10.0), (-179.0, 12.0), (178.0, 12.0)]
+    module.draw_ring(Recorder(), split, 360, 180, fill=(1, 2, 3))
+    assert len(drawn) == 2, "a ring split by the dateline needs both halves"
+
+
+def test_immersive_globe_carries_the_world_texture():
+    """The base map must reach the component, and be used as the sphere map."""
+    from frontend import immersive
+
+    html = immersive.build_immersive_html(
+        sections=[{"title": "Panel", "body": "Body."}],
+        boundary_uri="data:image/png;base64,AAAA",
+        world_uri="data:image/png;base64,BBBB",
+    )
+    assert "data:image/png;base64,BBBB" in html
+    assert "earthMaterial.map" in html, "the texture is never bound to the globe"
+
+    # Without a texture the globe must still render, as a plain blue sphere.
+    bare = immersive.build_immersive_html(
+        sections=[{"title": "Panel", "body": "Body."}],
+    )
+    assert '"world": ""' in bare

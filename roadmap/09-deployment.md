@@ -4,6 +4,40 @@ Four routes, from a five-minute demo host to a production service.
 
 ---
 
+## Choosing a platform
+
+The single fact that decides this: **Streamlit is a stateful server, not a
+website.** The browser holds an open WebSocket to a Python process, and that
+process keeps the session — the selected city, the loaded model, the INSAT
+frame buffer — in memory between interactions. Any host that expects a
+request to arrive, be answered, and be forgotten cannot run it.
+
+That rules out the two platforms people usually ask about first.
+
+| Platform | Runs this app? | Why |
+|---|---|---|
+| Streamlit Community Cloud | **Yes** | Purpose-built for it. Free, public URL, deploys from GitHub. |
+| Hugging Face Spaces | **Yes** | Free, persistent container, native Streamlit SDK. The best second option. |
+| Render / Railway / Fly.io | **Yes** | Ordinary container hosts. Paid, but the collector can run alongside. |
+| Google Cloud Run | Yes, with care | Needs session affinity on, minimum instances above zero, and a mounted volume for the frame buffer. |
+| **Vercel** | **No** | Serverless functions: request in, response out, process discarded. No persistent WebSocket, so the Streamlit session dies between clicks. The dependency set (xgboost, OpenCV, SciPy, pandas) also overruns the function bundle limit. Vercel is excellent at what it is for — a static or SSR frontend — and this is not that. |
+| **Cloudflare Workers / Pages** | **No** | Workers are V8 isolates with strict CPU limits; Python support runs through Pyodide in WebAssembly, where xgboost and OpenCV are not available. Pages is static hosting. Cloudflare *Containers* could host it, but that is a much younger product than the alternatives above and buys nothing here. |
+
+**Recommendation for SIH: stay on Streamlit Community Cloud.** It is free, the
+URL is public so judges can open it on their own device, and it needs no
+configuration this repository does not already carry. Moving to Vercel or
+Cloudflare would mean rewriting the dashboard as a separate frontend against a
+Python API — days of work that changes nothing an evaluator sees.
+
+The one real reason to move is the ephemeral filesystem: Community Cloud
+resets the container on redeploy, so the INSAT frame buffer starts empty and
+cloud motion is unavailable until two scans accumulate. If that matters more
+than convenience, take a container host from the table and run
+`scripts/collect_frames.py` beside the dashboard on a mounted volume, as in
+Option B below.
+
+---
+
 ## Option A · Streamlit Community Cloud (recommended for SIH)
 
 Free, public URL, deploys from GitHub. This is the right choice for a
@@ -226,7 +260,7 @@ schtasks /create /tn "INSATCollector" `
 
 - [ ] Frame collector running for at least an hour — confirms cloud motion
 - [ ] `python scripts/live_test.py Delhi` shows 3+ legs live
-- [ ] `pytest` passes (56 offline)
+- [ ] `pytest` passes (68 offline)
 - [ ] App opened once to warm caches and wake the host
 - [ ] A second city tried, to show it is not hardcoded
 - [ ] Offline fallback understood, in case venue Wi-Fi fails

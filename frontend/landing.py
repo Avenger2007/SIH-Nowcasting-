@@ -253,6 +253,7 @@ def render(st, live_legs: Optional[List[str]] = None,
            total_legs: int = 4, has_run: bool = False,
            immersive_mode: bool = True,
            boundary_uri: Optional[str] = None,
+           world_uri: Optional[str] = None,
            radars: Optional[List[Dict]] = None) -> None:
     """
     Draw the landing page.
@@ -273,6 +274,7 @@ def render(st, live_legs: Optional[List[str]] = None,
         has_run: whether a nowcast has been produced this session.
         immersive_mode: render the scroll-driven experience.
         boundary_uri: official India boundary texture, as a data URI.
+        world_uri: world base map texture, as a data URI.
         radars: radar network rows for the globe.
     """
     live_legs = live_legs or []
@@ -286,6 +288,7 @@ def render(st, live_legs: Optional[List[str]] = None,
                 sections=immersive_sections(live_legs, total_legs,
                                             has_run, counts),
                 boundary_uri=boundary_uri,
+                world_uri=world_uri,
                 radars=radars or [],
                 satellites=[
                     {"name": s.name, "lon": s.longitude, "status": s.status}

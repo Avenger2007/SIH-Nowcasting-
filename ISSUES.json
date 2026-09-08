@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-07",
+  "generated": "2026-09-08T05:14:12+00:00",
   "description": "Bug and issue register for the SIH 2026 nowcasting system. Rendered live in the dashboard's Diagnostics panel.",
   "issues": [
     {
@@ -447,6 +447,39 @@
       "detail": "The exit button assigned to st.session_state.immersive, but that key is bound to the sidebar toggle, which is created earlier in the script. Streamlit raises StreamlitWidgetAlreadyInstantiatedError on any write to a widget-bound key after that widget exists, so pressing the button replaced the page with a traceback.",
       "impact": "There was no way back out of immersive mode without restarting.",
       "fix": "The button records an intent, and the intent is consumed at the top of the next run before the toggle is instantiated - the point at which the write is legal."
+    },
+    {
+      "id": "BUG-042",
+      "severity": "medium",
+      "title": "Antarctica and Eurasia smeared into bands across the world texture",
+      "area": "Cartography",
+      "status": "fixed",
+      "found": "tools/build_world_atlas.py",
+      "detail": "The antimeridian handler treated any ring spanning more than 180 degrees of longitude as split by the dateline, shifted its negative longitudes by a full turn and drew it twice. Antarctica spans a full 360 degrees and the Afro-Eurasian landmass 198, and both are continuous, so both were duplicated - each one filling a horizontal band of land colour right across the map.",
+      "impact": "The globe showed two solid stripes of land through the oceans at mid latitudes.",
+      "fix": "A wrap is now detected as a jump of more than half a turn between two CONSECUTIVE vertices. The segment that closes a circumpolar ring across the pole is excluded, because it jumps a whole turn without crossing the dateline; without that exclusion Antarctica was still drawn twice, and only happened to look right."
+    },
+    {
+      "id": "BUG-043",
+      "severity": "medium",
+      "title": "Country fills clipped to white once the globe was lit",
+      "area": "Frontend",
+      "status": "fixed",
+      "found": "frontend/immersive.py, frontend/globe.py",
+      "detail": "Ambient 0.95 plus a 0.38 key light exceeds full brightness, so every country fill on the lit face saturated to white and the boundaries between them vanished. A specular highlight on the Phong material added a second hotspot that moved with the rotation.",
+      "impact": "The whole point of colouring the countries was lost across the half of the globe facing the viewer.",
+      "fix": "Ambient and key now sum to under 1.0 (0.66 + 0.30), and specular is dropped to black once the map texture is bound. The palette was also saturated, because pastels washed out even at correct exposure."
+    },
+    {
+      "id": "BUG-044",
+      "severity": "low",
+      "title": "The contrast wash sat behind the globe on the last panel",
+      "area": "Frontend",
+      "status": "fixed",
+      "found": "frontend/immersive.py",
+      "detail": "Which side to darken was computed as round(scrollTop / frameHeight) % 2. That assumes each panel is exactly one frame tall and that the scroll ends on a panel boundary. It ends clamped a little past one, so the sixth panel rounded up to index 6, the parity flipped, and the wash was drawn behind the globe instead of behind the copy.",
+      "impact": "The closing panel - the one stating what the project does and does not claim - was the hardest to read on the page.",
+      "fix": "The side is read off the panel currently under the middle of the frame, using that panel's own class, so no arithmetic can drift out of step with the layout."
     }
   ]
 }

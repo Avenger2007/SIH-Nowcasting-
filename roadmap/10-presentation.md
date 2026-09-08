@@ -196,7 +196,7 @@ number we cannot evidence."
 
 ## Slide 12 · Engineering register
 
-> **32 issues tracked · 28 resolved · 4 open with next steps**
+> **44 issues tracked · 40 resolved · 4 open with next steps**
 >
 > Including bugs we found in our own work:
 > - integer overflow made radar decode terrain as 40 dBZ echo

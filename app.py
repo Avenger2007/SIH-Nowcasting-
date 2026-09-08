@@ -36,6 +36,7 @@ from utils import llm_alert, metrics as vmetrics, optical_flow
 from utils.calibration import kelvin_to_counts
 from utils.datasources import boundaries as boundary_src
 from utils.datasources import fusion, radar as radar_src
+from utils.datasources import worldmap
 from utils.predictor import FeatureContractError, ThunderstormPredictor
 
 st.set_page_config(
@@ -366,6 +367,7 @@ with tab_home:
         immersive_mode=immersive_on,
         boundary_uri=(_boundary.data["data_uri"]
                       if _boundary is not None and _boundary.ok else None),
+        world_uri=worldmap.texture_data_uri(),
         radars=cached_network_status(limit=12),
     )
 
@@ -633,6 +635,7 @@ with tab_globe:
             selected_city=selected,
             network_status=network,
             boundary=boundary_payload,
+            world_uri=worldmap.texture_data_uri(),
             source_status={
                 leg: r.status.value
                 for leg, r in (observation.sources.items() if observation else [])
@@ -740,6 +743,38 @@ with tab_data:
                         })
                     st.dataframe(body, use_container_width=True,
                                  hide_index=True)
+
+    # Cartography sits outside the nowcast gate on purpose. "Where do your
+    # borders come from?" is the first question anyone asks about a map of
+    # India, and it deserves an answer in the app rather than only in the
+    # source.
+    st.markdown(theme.section("Cartography",
+        "The globe carries two layers. Neither is a stock basemap.",
+        eyebrow_text="Boundaries"), unsafe_allow_html=True)
+
+    _world = worldmap.fetch_world_texture()
+    _india = cached_boundary("state_filled")
+
+    carto = theme.source_row(
+        "World base", _world.source, _world.status.value,
+        _world.message, 0.0,
+    )
+    if _india is not None:
+        carto += theme.source_row(
+            "India", _india.source, _india.status.value,
+            _india.message, _india.latency_ms,
+        )
+    else:
+        carto += theme.source_row(
+            "India", "ISRO Bhuvan", "unavailable",
+            "Bhuvan could not be reached, so India is drawn without a "
+            "boundary. There is deliberately no fallback: Natural Earth, "
+            "OpenStreetMap and GADM all depict the Line of Control rather "
+            "than the official Indian boundary.", 0.0,
+        )
+    st.markdown(theme.panel("Boundary provenance", carto),
+                unsafe_allow_html=True)
+    st.caption(worldmap.ATTRIBUTION)
 
 
 # --------------------------------------------------------------------------

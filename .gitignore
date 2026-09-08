@@ -52,3 +52,10 @@ data/lightning/*.geojson
 # Editor / tooling
 .claude/
 .pytest_cache/
+
+# Natural Earth downloads used only to rebuild the globe texture. The derived
+# raster (data/world/earth_texture.png) IS committed; these source files are
+# not, so the repository holds no foreign depiction of an Indian boundary.
+# tools/build_world_atlas.py re-fetches them on demand.
+data/world/*.geojson
+data/world/_*.png

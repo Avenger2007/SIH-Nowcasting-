@@ -13,7 +13,8 @@ Every source, how it is reached, what it gives, and its current status.
 | Model data | Open-Meteo (GFS / ECMWF) | none | **Live** |
 | Lightning | IITM / ENTLN / Blitzortung | institutional | Adapter ready, no feed |
 | Surface | OpenWeatherMap | optional | Live via model fallback |
-| Boundaries | ISRO Bhuvan / NRSC | none | **Live** |
+| Boundaries (India) | ISRO Bhuvan / NRSC | none | **Live** |
+| World base map | Natural Earth 1:110m | none | **Committed** |
 
 ---
 
@@ -173,11 +174,52 @@ the UI explains why. A test enforces this so it cannot be quietly changed.
 
 ---
 
+## 6 · World base map — Natural Earth, with India carved out
+
+The globes need the rest of the world, or a viewer cannot see where the Indian
+domain sits. `data/world/earth_texture.png` is a 4096x2048 equirectangular
+raster — every coastline, a distinct colour per country, and one blue for
+ocean, sea and inland water alike.
+
+| | |
+|---|---|
+| Geometry | Natural Earth 1:110m, public domain |
+| Built by | `tools/build_world_atlas.py`, offline |
+| Fetched at runtime | Never. The raster is committed. |
+| Served by | `utils/datasources/worldmap.py` |
+
+**Three countries are drawn without any border: India, Pakistan and China.**
+Those are the polygons whose Natural Earth outlines run along frontiers India
+contests — Pakistan's takes in Gilgit-Baltistan and what India calls PoK,
+China's takes in Aksai Chin and stops short of Arunachal Pradesh. They keep a
+neutral land fill instead, which depicts terrain and claims nothing. Every
+other country, including Nepal, Bhutan, Bangladesh, Myanmar and Afghanistan,
+is drawn normally, because none of those boundaries is contested.
+
+India is then drawn on the layer above the sphere, from the Bhuvan raster
+described in section 5. That raster covers India's full official extent, Aksai
+Chin and PoK included, so the frontiers a viewer actually sees along those
+margins are the Survey of India ones — never Natural Earth's.
+
+The effect is that **no foreign dataset ever draws an Indian boundary**, at
+runtime or in the committed artefact. `tests/test_pipeline.py` asserts the
+exclusion set, and asserts that the build script and the runtime module agree
+on it, so the app can never describe a map it is not drawing.
+
+Colours are assigned by greedy graph colouring over an adjacency graph derived
+from the geometry itself, so no two countries that share a border share a
+colour. Neither the Natural Earth downloads nor any other third-party
+boundary file is committed to this repository.
+
+---
+
 ## Attribution
 
 - Satellite imagery: ISRO / MOSDAC, INSAT-3DS and INSAT-3DR IMAGER
 - Radar products: India Meteorological Department, `mausam.imd.gov.in`
 - Administrative boundaries: ISRO Bhuvan / NRSC, Department of Space,
   Survey of India depiction
+- World coastlines and non-Indian boundaries: Natural Earth 1:110m,
+  public domain
 - Numerical model data: Open-Meteo (GFS / ECMWF IFS), CC-BY 4.0
 - Surface observations: OpenWeatherMap

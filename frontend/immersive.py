@@ -34,6 +34,7 @@ import config
 
 def build_immersive_html(sections: List[Dict],
                          boundary_uri: Optional[str] = None,
+                         world_uri: Optional[str] = None,
                          radars: Optional[List[Dict]] = None,
                          satellites: Optional[List[Dict]] = None,
                          height: int = 780) -> str:
@@ -43,6 +44,9 @@ def build_immersive_html(sections: List[Dict],
     Args:
         sections: [{'eyebrow','title','body','items':[{'h','b'}]}, ...]
         boundary_uri: data URI of the official India boundary texture.
+        world_uri: data URI of the equirectangular world base map, from
+            :mod:`utils.datasources.worldmap`. Without it the globe falls
+            back to an unmarked blue sphere.
         radars: [{'code','city','lat','lon','live'}, ...]
         satellites: [{'name','lon','status'}, ...]
         height: iframe height. The component tries to grow itself to the
@@ -51,6 +55,7 @@ def build_immersive_html(sections: List[Dict],
     payload = {
         "sections": sections,
         "boundary": boundary_uri or "",
+        "world": world_uri or "",
         "radars": radars or [],
         "satellites": satellites or [],
         "bbox": list(config.INDIA_BBOX),
@@ -113,20 +118,27 @@ _TEMPLATE = r"""
   #globe-canvas { position: absolute; inset: 0; }
 
   /* The globe sits behind the copy, so each side gets a gradient wash to
-     guarantee contrast wherever the continent happens to be. */
+     guarantee contrast wherever the continent happens to be.
+
+     These are heavier and reach further than they used to. The globe was a
+     near-black sphere when they were first set; a lit political map is far
+     brighter, and at the old weight the body copy sat over Africa at roughly
+     the contrast of grey on grey. */
   #scrim-left, #scrim-right {
-    position: fixed; top: 0; bottom: 0; width: 58%;
+    position: fixed; top: 0; bottom: 0; width: 68%;
     z-index: 1; pointer-events: none;
   }
   #scrim-left {
     left: 0;
-    background: linear-gradient(90deg, rgba(3,6,13,.94) 0%,
-                rgba(3,6,13,.72) 46%, rgba(3,6,13,0) 100%);
+    background: linear-gradient(90deg, rgba(3,6,13,.96) 0%,
+                rgba(3,6,13,.88) 38%, rgba(3,6,13,.52) 72%,
+                rgba(3,6,13,0) 100%);
   }
   #scrim-right {
     right: 0;
-    background: linear-gradient(270deg, rgba(3,6,13,.94) 0%,
-                rgba(3,6,13,.72) 46%, rgba(3,6,13,0) 100%);
+    background: linear-gradient(270deg, rgba(3,6,13,.96) 0%,
+                rgba(3,6,13,.88) 38%, rgba(3,6,13,.52) 72%,
+                rgba(3,6,13,0) 100%);
     opacity: 0;
     transition: opacity .6s ease;
   }
@@ -333,14 +345,39 @@ _TEMPLATE = r"""
     );
   }
 
-  // -- ocean -------------------------------------------------------------
+  // -- the Earth ---------------------------------------------------------
+  // Flat blue first, so the globe is never a black hole while the texture
+  // decodes, then the world map over it: coastlines, a colour per country
+  // and one blue for every ocean, sea and inland water body.
+  //
+  // Lighting is kept deliberately flat - a lot of ambient, a little key.
+  // A photographic falloff would drop half the countries into shadow, and
+  // this globe exists to be read, not admired.
+  // No specular: a sheen on a political map is a hotspot over whichever
+  // countries happen to face the light.
+  var earthMaterial = new THREE.MeshPhongMaterial({
+    color: 0x0B3460, emissive: 0x08203A,
+    specular: 0x000000, shininess: 0
+  });
+
   world.add(new THREE.Mesh(
-    new THREE.SphereGeometry(R, 72, 72),
-    new THREE.MeshPhongMaterial({
-      color: 0x143A60, emissive: 0x061224,
-      specular: 0x14283C, shininess: 5
-    })
+    new THREE.SphereGeometry(R, 128, 128),
+    earthMaterial
   ));
+
+  if (DATA.world) {
+    new THREE.TextureLoader().load(DATA.world, function (tex) {
+      // The texture is 4096 wide and wraps the full 360 degrees, so it needs
+      // anisotropic filtering to stay sharp where the sphere turns away.
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.wrapS = THREE.RepeatWrapping;
+      earthMaterial.map = tex;
+      earthMaterial.color.setHex(0xFFFFFF);
+      earthMaterial.emissive.setHex(0x060E18);
+      earthMaterial.needsUpdate = true;
+    });
+  }
 
   // -- atmosphere --------------------------------------------------------
   world.add(new THREE.Mesh(
@@ -362,8 +399,10 @@ _TEMPLATE = r"""
 
   // -- graticule ---------------------------------------------------------
   (function graticule() {
+    // Faint. The country boundaries are the detail on this globe now, and a
+    // graticule at the old weight competed with them.
     var mat = new THREE.LineBasicMaterial({
-      color: 0x6FA8DC, transparent: true, opacity: 0.15
+      color: 0xBBD9F5, transparent: true, opacity: 0.08
     });
     var g = new THREE.Group(), i, k, pts;
     for (k = -60; k <= 60; k += 20) {
@@ -483,8 +522,10 @@ _TEMPLATE = r"""
   }
 
   // -- lights ------------------------------------------------------------
-  scene.add(new THREE.AmbientLight(0xFFFFFF, 0.78));
-  var key = new THREE.DirectionalLight(0xEAF4FF, 0.55);
+  // Ambient plus key must stay under 1.0. At 0.95 + 0.38 the country fills
+  // clipped to white across the whole lit face and the map became unreadable.
+  scene.add(new THREE.AmbientLight(0xFFFFFF, 0.66));
+  var key = new THREE.DirectionalLight(0xEAF4FF, 0.30);
   key.position.set(240, 190, 320);
   scene.add(key);
   var fill = new THREE.DirectionalLight(0x3E7FC8, 0.35);
@@ -504,8 +545,21 @@ _TEMPLATE = r"""
 
     // Panels alternate sides; the wash follows so the copy always sits on
     // the darkened half and the globe stays visible on the other.
-    var index = Math.round(stage.scrollTop / Math.max(1, stage.clientHeight));
-    stage.classList.toggle('alt', index % 2 === 1);
+    //
+    // Which side is read off the panel currently under the middle of the
+    // frame, not computed from scrollTop. Dividing by the frame height
+    // assumed panels are exactly one frame tall and that the scroll ends on
+    // a panel boundary; it ends clamped a little past one, so the last panel
+    // rounded up to the next index, flipped the parity, and put the wash
+    // behind the globe instead of behind the copy.
+    var middle = stage.clientHeight / 2;
+    for (var p = 0; p < panels.length; p++) {
+      var rect = panels[p].getBoundingClientRect();
+      if (rect.top <= middle && rect.bottom >= middle) {
+        stage.classList.toggle('alt', panels[p].classList.contains('right'));
+        break;
+      }
+    }
 
     updateReveals();
   }

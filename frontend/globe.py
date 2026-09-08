@@ -70,6 +70,7 @@ def build_globe_html(selected_city: Optional[Dict] = None,
                      network_status: Optional[List[Dict]] = None,
                      source_status: Optional[Dict[str, str]] = None,
                      boundary: Optional[Dict] = None,
+                     world_uri: Optional[str] = None,
                      height: int = 660) -> str:
     """
     Generate the self-contained globe component.
@@ -83,6 +84,10 @@ def build_globe_html(selected_city: Optional[Dict] = None,
             boundary from ISRO Bhuvan. Omitted when Bhuvan is unreachable, in
             which case no boundary is drawn at all; this project never
             substitutes a non-authoritative depiction.
+        world_uri: the world base map from utils.datasources.worldmap, as a
+            data URI. Gives the sphere its coastlines, its country colours
+            and one blue for every water body, so a viewer can see where the
+            Indian domain sits. Without it the globe is an unmarked sphere.
     """
     payload = {
         "satellites": _satellite_payload(),
@@ -94,6 +99,7 @@ def build_globe_html(selected_city: Optional[Dict] = None,
         "selected": selected_city or {},
         "sources": source_status or {},
         "boundary": boundary or {},
+        "world": world_uri or "",
         "height": height,
     }
 
@@ -286,15 +292,35 @@ _TEMPLATE = r"""
   })();
 
   // ------------------------------------------------------------------ globe
+  // Flat blue to begin with, so the sphere is never blank while the texture
+  // decodes, then the world base map over it. Specular is dropped once the
+  // map is on: a sheen on a political map is a hotspot sitting over whichever
+  // countries happen to face the light.
+  var globeMaterial = new THREE.MeshPhongMaterial({
+    color: 0x2E6FA8, emissive: 0x08243F,
+    specular: 0x9FC6E8, shininess: 18,
+    transparent: false, opacity: 1.0
+  });
+
   var globe = new THREE.Mesh(
-    new THREE.SphereGeometry(R, 64, 64),
-    new THREE.MeshPhongMaterial({
-      color: 0x2E6FA8, emissive: 0x08243F,
-      specular: 0x9FC6E8, shininess: 18,
-      transparent: false, opacity: 1.0
-    })
+    new THREE.SphereGeometry(R, 128, 128),
+    globeMaterial
   );
   scene.add(globe);
+
+  if (DATA.world) {
+    new THREE.TextureLoader().load(DATA.world, function (tex) {
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.wrapS = THREE.RepeatWrapping;
+      globeMaterial.map = tex;
+      globeMaterial.color.setHex(0xFFFFFF);
+      globeMaterial.emissive.setHex(0x060E18);
+      globeMaterial.specular.setHex(0x000000);
+      globeMaterial.shininess = 0;
+      globeMaterial.needsUpdate = true;
+    });
+  }
 
   // Fresnel atmosphere: bright at the limb, invisible face-on.
   var atmosphere = new THREE.Mesh(
@@ -405,8 +431,10 @@ _TEMPLATE = r"""
   })();
 
   // ------------------------------------------------------------------ lights
-  scene.add(new THREE.AmbientLight(0xFFFFFF, 0.72));
-  var key = new THREE.DirectionalLight(0xFFFFFF, 0.9);
+  // Ambient plus key stays under 1.0 so the country fills never clip to
+  // white across the lit face and lose the boundaries between them.
+  scene.add(new THREE.AmbientLight(0xFFFFFF, 0.66));
+  var key = new THREE.DirectionalLight(0xFFFFFF, 0.32);
   key.position.set(300, 220, 420);
   scene.add(key);
   var rimLight = new THREE.DirectionalLight(0xAFD4F5, 0.45);
