@@ -68,7 +68,7 @@ def immersive_css() -> str:
   }
   .stApp { background: #03060D !important; }
   .stTabs [data-baseweb="tab-list"] {
-    position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+    position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
     z-index: 1000; border-bottom: none;
     background: rgba(8, 16, 32, .62);
     backdrop-filter: blur(14px);
