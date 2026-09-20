@@ -129,7 +129,7 @@ def global_css() -> str:
       linear-gradient(180deg, {SKY_50} 0%, #FFFFFF 40%, {SKY_50} 100%);
   }}
   html, body, [class*="css"] {{ font-family: var(--body); }}
-  .block-container {{ padding-top: 1.2rem; max-width: 1420px; }}
+  .block-container {{ padding-top: 5rem; max-width: 1420px; }}
 
   h1, h2, h3, h4, h5 {{
     font-family: var(--display) !important;
