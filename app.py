@@ -39,6 +39,13 @@ from utils.datasources import fusion, radar as radar_src
 from utils.datasources import worldmap
 from utils.predictor import FeatureContractError, ThunderstormPredictor
 
+# --------------------------------------------------------------------------
+# Feature flags
+# --------------------------------------------------------------------------
+# Set to True to bring the Engineering register tab back. Nothing inside the
+# tab's content changes when this is off - it is just not shown.
+SHOW_ENGINEERING_REGISTER = False
+
 st.set_page_config(
     page_title="Thunderstorm Nowcasting | SIH 2026",
     page_icon="⛈️",
@@ -343,14 +350,19 @@ if immersive_on:
         st.session_state["_leave_immersive"] = True
         st.rerun()
 
-tab_home, tab_now, tab_globe, tab_data, tab_model, tab_issues = st.tabs([
+_tab_labels = [
     "Home",
     "Nowcast",
     "3D Network",
     "Data sources",
     "Model & verification",
-    "Engineering register",
-])
+]
+if SHOW_ENGINEERING_REGISTER:
+    _tab_labels.append("Engineering register")
+
+_tabs = st.tabs(_tab_labels)
+tab_home, tab_now, tab_globe, tab_data, tab_model = _tabs[:5]
+tab_issues = _tabs[5] if SHOW_ENGINEERING_REGISTER else None
 
 
 # --------------------------------------------------------------------------
@@ -981,66 +993,67 @@ with tab_model:
 # Engineering register
 # --------------------------------------------------------------------------
 
-with tab_issues:
-    data = load_issues()
-    issues = data.get("issues", [])
+if SHOW_ENGINEERING_REGISTER:
+    with tab_issues:
+        data = load_issues()
+        issues = data.get("issues", [])
 
-    fixed = [i for i in issues if i.get("status") == "fixed"]
-    open_issues = [i for i in issues if i.get("status") != "fixed"]
+        fixed = [i for i in issues if i.get("status") == "fixed"]
+        open_issues = [i for i in issues if i.get("status") != "fixed"]
 
-    cols = st.columns(4)
-    cols[0].markdown(theme.metric(
-        "Total tracked", str(len(issues)), "bugs and issues"),
-        unsafe_allow_html=True)
-    cols[1].markdown(theme.metric(
-        "Fixed", str(len(fixed)), "verified in this build", theme.GREEN),
-        unsafe_allow_html=True)
-    cols[2].markdown(theme.metric(
-        "Open", str(len(open_issues)), "documented, with next steps",
-        theme.AMBER), unsafe_allow_html=True)
-    cols[3].markdown(theme.metric(
-        "Critical fixed",
-        str(len([i for i in fixed if i["severity"] == "critical"])),
-        "would have invalidated results", theme.RED),
-        unsafe_allow_html=True)
+        cols = st.columns(4)
+        cols[0].markdown(theme.metric(
+            "Total tracked", str(len(issues)), "bugs and issues"),
+            unsafe_allow_html=True)
+        cols[1].markdown(theme.metric(
+            "Fixed", str(len(fixed)), "verified in this build", theme.GREEN),
+            unsafe_allow_html=True)
+        cols[2].markdown(theme.metric(
+            "Open", str(len(open_issues)), "documented, with next steps",
+            theme.AMBER), unsafe_allow_html=True)
+        cols[3].markdown(theme.metric(
+            "Critical fixed",
+            str(len([i for i in fixed if i["severity"] == "critical"])),
+            "would have invalidated results", theme.RED),
+            unsafe_allow_html=True)
 
-    st.write("")
-    st.caption(
-        "This register is the honest engineering record for the project. "
-        "Open items are limitations we know about and can describe, which is "
-        "a stronger position than claims we cannot defend."
-    )
-
-    view = st.radio(
-        "Show", ["Open issues", "Fixed", "All"],
-        horizontal=True, label_visibility="collapsed",
-    )
-    severity_filter = st.multiselect(
-        "Severity",
-        ["critical", "high", "medium", "low"],
-        default=["critical", "high", "medium", "low"],
-    )
-
-    if view == "Open issues":
-        shown = open_issues
-    elif view == "Fixed":
-        shown = fixed
-    else:
-        shown = issues
-
-    order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    shown = sorted(
-        [i for i in shown if i.get("severity") in severity_filter],
-        key=lambda i: order.get(i.get("severity", "low"), 9),
-    )
-
-    if not shown:
-        st.info("Nothing matches the current filter.")
-    else:
-        st.markdown(
-            "".join(theme.issue_card(i) for i in shown),
-            unsafe_allow_html=True,
+        st.write("")
+        st.caption(
+            "This register is the honest engineering record for the project. "
+            "Open items are limitations we know about and can describe, which is "
+            "a stronger position than claims we cannot defend."
         )
+
+        view = st.radio(
+            "Show", ["Open issues", "Fixed", "All"],
+            horizontal=True, label_visibility="collapsed",
+        )
+        severity_filter = st.multiselect(
+            "Severity",
+            ["critical", "high", "medium", "low"],
+            default=["critical", "high", "medium", "low"],
+        )
+
+        if view == "Open issues":
+            shown = open_issues
+        elif view == "Fixed":
+            shown = fixed
+        else:
+            shown = issues
+
+        order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        shown = sorted(
+            [i for i in shown if i.get("severity") in severity_filter],
+            key=lambda i: order.get(i.get("severity", "low"), 9),
+        )
+
+        if not shown:
+            st.info("Nothing matches the current filter.")
+        else:
+            st.markdown(
+                "".join(theme.issue_card(i) for i in shown),
+                unsafe_allow_html=True,
+            )
 
 
 # ==========================================================================
