@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -94,6 +96,64 @@ def immersive_css() -> str:
   div[data-testid="stVerticalBlock"] > div:has(> iframe) { gap: 0; }
 </style>
 """
+
+
+# ==========================================================================
+# Geocoding search (Open-Meteo Geocoding API — free, no key required)
+# ==========================================================================
+
+@dataclass
+class Place:
+    """
+    A minimal stand-in for config.City.
+
+    Only carries the fields the rest of this file reads from `city` (name,
+    lat, lon, state), so it slots in wherever `city` is used downstream
+    without touching anything else.
+    """
+    name: str
+    lat: float
+    lon: float
+    state: str = ""
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def geocode_search(query: str, india_only: bool = True):
+    """
+    Search for a place by name via the free Open-Meteo Geocoding API.
+
+    No API key needed - same provider already used for NWP data. Cached for
+    an hour since place names don't move.
+    """
+    if not query or len(query.strip()) < 2:
+        return []
+
+    try:
+        response = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": query.strip(), "count": 10,
+                    "language": "en", "format": "json"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        results = response.json().get("results", []) or []
+    except Exception:
+        return []
+
+    if india_only:
+        results = [r for r in results if r.get("country_code") == "IN"]
+
+    return results
+
+
+def _place_label(result: dict) -> str:
+    """Human-readable label for a geocoding search result."""
+    parts = [result["name"]]
+    if result.get("admin1"):
+        parts.append(result["admin1"])
+    if result.get("country") and result.get("country_code") != "IN":
+        parts.append(result["country"])
+    return ", ".join(parts)
 
 
 # ==========================================================================
@@ -209,12 +269,46 @@ if st.session_state.pop("_leave_immersive", False):
 with st.sidebar:
     st.markdown("### Configuration")
 
-    city_name = st.selectbox(
+    location_mode = st.radio(
         "Forecast location",
-        [c.name for c in config.CITIES],
-        index=0,
+        ["Search any location", "Preset city"],
+        horizontal=True,
+        label_visibility="collapsed",
     )
-    city = config.get_city(city_name)
+
+    if location_mode == "Search any location":
+        query = st.text_input(
+            "Search",
+            placeholder="e.g. Mysuru, Coimbatore, a village name…",
+            label_visibility="collapsed",
+        )
+        matches = geocode_search(query) if query else []
+
+        if query and not matches:
+            st.caption("No matching Indian location found.")
+            city = config.get_city(config.CITIES[0].name)  # safe fallback
+        elif matches:
+            options = {_place_label(m): m for m in matches}
+            chosen_label = st.selectbox("Match", list(options.keys()),
+                                        label_visibility="collapsed")
+            chosen = options[chosen_label]
+            city = Place(
+                name=chosen["name"],
+                lat=chosen["latitude"],
+                lon=chosen["longitude"],
+                state=chosen.get("admin1", ""),
+            )
+        else:
+            st.caption("Type a place name above to search.")
+            city = config.get_city(config.CITIES[0].name)  # default until typed
+    else:
+        city_name = st.selectbox(
+            "Forecast location",
+            [c.name for c in config.CITIES],
+            index=0,
+            label_visibility="collapsed",
+        )
+        city = config.get_city(city_name)
 
     st.caption(f"{city.state} — {city.lat:.4f} N, {city.lon:.4f} E")
 
